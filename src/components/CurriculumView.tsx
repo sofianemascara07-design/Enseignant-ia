@@ -88,21 +88,21 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({ onSelectTopicFor
               </div>
 
               <h2
-                dir={selectedSubject === 'Arabe' ? 'rtl' : 'ltr'}
+                dir={SUBJECT_META[selectedSubject].defaultLang === 'ar' ? 'rtl' : 'ltr'}
                 className="text-base font-bold text-slate-900 leading-snug"
               >
                 {topic.title}
               </h2>
 
               <p
-                dir={selectedSubject === 'Arabe' ? 'rtl' : 'ltr'}
+                dir={SUBJECT_META[selectedSubject].defaultLang === 'ar' ? 'rtl' : 'ltr'}
                 className="text-xs text-slate-600 leading-relaxed"
               >
                 {topic.competency}
               </p>
 
               <ul
-                dir={selectedSubject === 'Arabe' ? 'rtl' : 'ltr'}
+                dir={SUBJECT_META[selectedSubject].defaultLang === 'ar' ? 'rtl' : 'ltr'}
                 className="space-y-1.5 pt-2 border-t border-slate-100 text-xs text-slate-700"
               >
                 {topic.keyPoints.map((kp, idx) => (

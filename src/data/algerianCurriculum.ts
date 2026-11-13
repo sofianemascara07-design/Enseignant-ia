@@ -30,7 +30,7 @@ export const SUBJECT_META: Record<
   Mathématiques: {
     labelAr: 'الرياضيات',
     labelEn: 'Mathematics',
-    defaultLang: 'fr',
+    defaultLang: 'ar',
     accentClass: 'text-emerald-700',
   },
   'Sciences Naturelles': {
@@ -65,35 +65,35 @@ export interface SubjectAsset {
 export const CURATED_ILLUSTRATIONS: SubjectAsset[] = [
   {
     id: 'asset_math_geom',
-    title: 'Théorème de Pythagore & Repère',
+    title: 'مبرهنة فيتاغورس والمعلم المتعامد (الرياضيات)',
     subject: 'Mathématiques',
     levelHint: '3AM · 4AM',
     imagePath: '/src/assets/images/cem_math_geometry_1794587444122.jpg',
-    caption: 'Triangle rectangle, relation a² + b² = c² et repère orthonormé.',
+    caption: 'المثلث القائم، العلاقة a² + b² = c² والإنشاءات الهندسية في التعليم المتوسط.',
   },
   {
     id: 'asset_physics_circuit',
-    title: 'Circuit électrique & Prisme optique',
+    title: 'الدارة الكهربائية وتبدد الضوء (الفيزياء)',
     subject: 'Physique',
     levelHint: '1AM · 3AM · 4AM',
     imagePath: '/src/assets/images/cem_physics_circuit_1794587443600.jpg',
-    caption: 'Montage en série avec ampèremètre, résistance et dispersion de la lumière.',
+    caption: 'تركيب دارة كهربائية على التسلسل مع جهاز الأمبيرمتر والمقاومة والموشور الضوئي.',
   },
   {
     id: 'asset_science_bio',
-    title: 'Cellule végétale & Photosynthèse',
+    title: 'الخلية النباتية والتركيب الضوئي (علوم الطبيعة)',
     subject: 'Sciences Naturelles',
     levelHint: '1AM · 2AM · 4AM',
     imagePath: '/src/assets/images/cem_science_biology_1794587444405.jpg',
-    caption: 'Structure cellulaire verte et coupe transversale de feuille (stomates, xylème).',
+    caption: 'بنية الخلية النباتية اليخضورية ومقطع عرضي في الورقة (الثغور والأوعية الخشبية).',
   },
   {
     id: 'asset_lang_desk',
-    title: 'Cahiers trilingues FR · AR · EN',
+    title: 'دفاتر ومراجع اللغات (عربية · فرنسية · إنجليزية)',
     subject: 'Français',
     levelHint: '1AM – 4AM',
     imagePath: '/src/assets/images/cem_languages_library_1794587445743.jpg',
-    caption: 'Supports d’écriture manuscrite et manuels de langues pour le cycle moyen.',
+    caption: 'نماذج دفاتر مسطرة للخط اليدوي والكتب المدرسية للطور المتوسط.',
   },
 ];
 
@@ -312,92 +312,92 @@ export const ALGERIAN_CEM_CURRICULUM: Record<SubjectType, Record<LevelType, Curr
       {
         id: 'math_1am_t1',
         trimester: 'T1',
-        title: 'Nombres entiers, décimaux & Droites parallèles/perpendiculaires',
-        competency: 'Comparer, encadrer des décimaux et tracer des figures géométriques de base.',
-        keyPoints: ['Écriture fractionnaire et décimale', 'Ordre et droite graduée', 'Perpendicularité et parallélisme', 'Médiatrice d’un segment'],
+        title: 'الأعداد الطبيعية والعشرية والمستقيمات المتوازية والمتعامدة',
+        competency: 'قراءة وكتابة ومقارنة وحصر الأعداد العشرية وإنشاء الأشكال الهندسية القاعدية.',
+        keyPoints: ['الكتابة الكسرية والعشرية', 'الترتيب والمستقيم المدرج', 'التوازي والتعامد', 'محور قطعة مستقيم'],
       },
       {
         id: 'math_1am_t2',
         trimester: 'T2',
-        title: 'Division euclidienne, Fractions & Angles / Triangles',
-        competency: 'Calculer avec les fractions simples et construire triangles et bissectrices.',
-        keyPoints: ['Critères de divisibilité', 'Addition et multiplication par une fraction', 'Mesure et construction d’angles', 'Symétrie axiale'],
+        title: 'القسمة الإقليدية والكسور والزوايا والمثلثات',
+        competency: 'إجراء الحسابات على الكسور البسيطة وإنشاء الزوايا والمثلثات ومنصفاتها.',
+        keyPoints: ['قواعد قابلية القسمة', 'جمع وطرح وضرب الكسور', 'قياس وإنشاء الزوايا', 'التناظر المحوري'],
       },
       {
         id: 'math_1am_t3',
         trimester: 'T3',
-        title: 'Proportionnalité, Périmètres, Aires & Pavé droit',
-        competency: 'Résoudre des problèmes de proportionnalité, pourcentages et géométrie.',
-        keyPoints: ['Tableaux de proportionnalité & échelles', 'Aire du rectangle, triangle et disque', 'Repérage dans le plan', 'Volume du pavé droit et cube'],
+        title: 'التناسبية، المحيطات والمساحات ومتوازي المستطيلات',
+        competency: 'حل مشكلات التناسبية والنسب المئوية وحساب المساحات والحجوم.',
+        keyPoints: ['جداول التناسبية والمقياس', 'مساحة المستطيل والمثلث والقرص', 'التعليم في المستوي', 'حجم متوازي المستطيلات والمكعب'],
       },
     ],
     '2AM': [
       {
         id: 'math_2am_t1',
         trimester: 'T1',
-        title: 'Enchaînement d’opérations & Constructions géométriques',
-        competency: 'Respecter les priorités opératoires et utiliser la distributivité.',
-        keyPoints: ['Priorités avec et sans parenthèses', 'Distributivité k(a+b)', 'Angles alternes-internes / correspondants', 'Symétrie centrale et propriétés'],
+        title: 'العمليات على الأعداد الطبيعية والعشرية وإنشاء أشكال هندسية',
+        competency: 'احترام أولويات العمليات وتطبيق خاصية التوزيعية واستعمال التناظر المركزي.',
+        keyPoints: ['أولويات العمليات بالأقواس ودون أقواس', 'التوزيعية k(a+b)', 'الزوايا المتبادلة داخلياً والمتماثلة', 'التناظر المركزي وخواصه'],
       },
       {
         id: 'math_2am_t2',
         trimester: 'T2',
-        title: 'Nombres relatifs & Parallélogrammes',
-        competency: 'Additionner/soustraire les relatifs et démontrer qu’un quadrilatère est un parallélogramme.',
-        keyPoints: ['Comparaison et repérage des relatifs', 'Somme algébrique', 'Somme des angles d’un triangle (180°)', 'Parallélogramme, losange, rectangle, carré'],
+        title: 'الأعداد النسبية ومتوازي الأضلاع',
+        competency: 'جمع وطرح الأعداد النسبية والبرهان على أن رباعياً هو متوازي أضلاع.',
+        keyPoints: ['مقارنة وتعليم الأعداد النسبية', 'المجموع الجبري', 'مجموع أقياس زوايا مثلث (180°)', 'متوازي الأضلاع، المعين، المستطيل والمربع'],
       },
       {
         id: 'math_2am_t3',
         trimester: 'T3',
-        title: 'Calcul littéral (Initiation), Équations & Prisme/Cylindre',
-        competency: 'Tester une égalité, résoudre ax = b et calculer l’aire latérale d’un cylindre.',
-        keyPoints: ['Expression littérale simple', 'Proportionnalité & vitesse moyenne', 'Statistiques (effectifs, fréquences)', 'Prisme droit et cylindre de révolution'],
+        title: 'الحساب الحرفي، المعادلات والموشور القائم وأسطوانة الدوران',
+        competency: 'اختبار صحة مساواة وحل معادلات من الشكل ax = b وحساب المساحة الجانبية.',
+        keyPoints: ['إنتاج عبارة حرفية وتبسيطها', 'التناسبية والسرعة المتوسطة', 'الإحصاء (التكرارات والتواترات)', 'الموشور القائم والأسطوانة'],
       },
     ],
     '3AM': [
       {
         id: 'math_3am_t1',
         trimester: 'T1',
-        title: 'Nombres relatifs (Produit/Quotient), Rationnels & Cas d’égalité des triangles',
-        competency: 'Calculer avec des nombres rationnels et démontrer l’égalité de deux triangles.',
-        keyPoints: ['Règle des signes (multiplication/division)', 'Opérations sur les fractions', 'Droite des milieux dans un triangle', 'Petit théorème de Thalès'],
+        title: 'الأعداد النسبية والناطقة وحالات تقايس المثلثات',
+        competency: 'حساب جداء وحاصل قسمة الأعداد الناطقة والبرهان على تقايس مثلثين.',
+        keyPoints: ['قاعدة الإشارات في الضرب والقسمة', 'العمليات الأربع على الأعداد الناطقة', 'مستقيم المنتصفين في مثلث', 'المثلثات المعينة بمستقيمين متوازيين يقطعهما قاطعان'],
       },
       {
         id: 'math_3am_t2',
         trimester: 'T2',
-        title: 'Puissances de 10, Calcul littéral & Triangle rectangle',
-        competency: 'Utiliser l’écriture scientifique, développer et appliquer Pythagore.',
-        keyPoints: ['Puissances d’exposant positif et négatif', 'Double distributivité (a+b)(c+d)', 'Théorème de Pythagore et réciproque', 'Cercle circonscrit & Cosinus d’un angle aigu'],
+        title: 'قوى العدد 10، الحساب الحرفي والمثلث القائم والدائرة',
+        competency: 'استعمال الكتابة العلمية والنشر وتطبيق خاصية فيتاغورس وجيب تمام زاوية حادة.',
+        keyPoints: ['القوى ذات أسس نسبية صحيحة', 'النشر المزدوج (a+b)(c+d)', 'خاصية فيتاغورس وخاصيتها العكسية', 'الدائرة المحيطة بالمثلث القائم و cos'],
       },
       {
         id: 'math_3am_t3',
         trimester: 'T3',
-        title: 'Équations du 1er degré, Ordre & Pyramide / Cône',
-        competency: 'Résoudre des problèmes par mise en équation et représenter des solides.',
-        keyPoints: ['Résolution d’équations ax+b = cx+d', 'Inégalités et opérations', 'Statistiques (moyenne pondérée)', 'Volume de la pyramide et du cône'],
+        title: 'المعادلات من الدرجة الأولى، الترتيب والعمليات والهرم والمخروط',
+        competency: 'ترييض مشكلات بحل معادلات من الدرجة الأولى وحساب حجم الهرم ومخروط الدوران.',
+        keyPoints: ['حل معادلات من الشكل ax+b = cx+d', 'المتباينات والعمليات', 'الإحصاء (المتوسط المتوازن)', 'حجم الهرم والمخروط الدوراني'],
       },
     ],
     '4AM': [
       {
         id: 'math_4am_t1',
         trimester: 'T1',
-        title: 'PGCD, Racines carrées & Théorème de Thalès / Trigonométrie',
-        competency: 'Calculer le PGCD, simplifier √a et utiliser Thalès et sin/cos/tan.',
-        keyPoints: ['Algorithme d’Euclide & fractions irréductibles', 'Calculs sur les radicaux (a√b)', 'Thalès et sa réciproque', 'Relations trigonométriques (cos²x + sin²x = 1)'],
+        title: 'القاسم المشترك الأكبر (PGCD)، الجذور التربيعية، طالس والنسب المثلثية',
+        competency: 'حساب PGCD وتبسيط الجذور وتطبيق مبرهنة طالس والعلاقات المثلثية في مثلث قائم.',
+        keyPoints: ['خوارزمية إقليدس والكسور غير القابلة للاختزال', 'العمليات على الجذور التربيعية (a√b)', 'مبرهنة طالس وخاصيتها العكسية', 'النسب المثلثية (sin, cos, tan)'],
       },
       {
         id: 'math_4am_t2',
         trimester: 'T2',
-        title: 'Calcul littéral, Identités remarquables, Équations & Vecteurs',
-        competency: 'Développer, factoriser, résoudre des équations-produits et calculer avec les vecteurs.',
-        keyPoints: ['(a+b)², (a-b)², a²-b²', 'Équation produit nul (ax+b)(cx+d)=0', 'Inéquations du 1er degré', 'Vecteurs, translation et coordonnées dans un repère'],
+        title: 'المتطابقات الشهيرة، التحليل، المعادلات والمتراجحات والأشعة',
+        competency: 'نشر وتحليل عبارات جبرية وحل معادلة الجداء المعدوم والحساب الشعاعي في معلم.',
+        keyPoints: ['المتطابقات الشهيرة الثلاث', 'معادلة الجداء المعدوم (ax+b)(cx+d)=0', 'المتراجحات من الدرجة الأولى بمجهول واحد', 'الأشعة والانسحاب والمعالم'],
       },
       {
         id: 'math_4am_t3',
         trimester: 'BEM',
-        title: 'Systèmes d’équations, Fonctions linéaires/affines & Préparation BEM',
-        competency: 'Résoudre un système 2×2, modéliser par fonction affine et traiter le problème BEM.',
-        keyPoints: ['Substitution et combinaison linéaire', 'Représentation graphique y = ax + b', 'Médiane et moyenne statistiques', 'Rotation, polygones réguliers et sphère'],
+        title: 'جملة معادلتين، الدوال الخطية والتآلفية والتحضير لشهادة التعليم المتوسط (BEM)',
+        competency: 'حل جملة معادلتين وتمثيل الدوال بيانياً ومعالجة الوضعيات الإدماجية لشهادة BEM.',
+        keyPoints: ['طريقتا التعويض والجمع', 'التمثيل البياني للدالة الخطية والتآلفية', 'الإحصاء (الوسيط والمدى)', 'الدوران والمضلعات المنتظمة والكرة'],
       },
     ],
   },
@@ -406,92 +406,92 @@ export const ALGERIAN_CEM_CURRICULUM: Record<SubjectType, Record<LevelType, Curr
       {
         id: 'snv_1am_t1',
         trimester: 'T1',
-        title: 'L’alimentation chez l’Homme & Nutrition chez la plante verte',
-        competency: 'Classifier les aliments et déterminer les besoins nutritifs des végétaux chlorophylliens.',
-        keyPoints: ['Origine et rôle des aliments (plastiques, énergétiques)', 'Ration alimentaire équilibrée', 'Absorption des sels minéraux (poils absorbants)', 'Photosynthèse et sève élaborée'],
+        title: 'التغذية عند الإنسان والتغذية عند النبات الأخضر',
+        competency: 'تصنيف الأغذية وتحديد شروط نمو النبات الأخضر ودور التركيب الضوئي.',
+        keyPoints: ['أصل ومصدر الأغذية (بسيطة ومركبة)', 'الراتب الغذائي والتوازن الغذائي', 'امتصاص المحلول المعدني عبر الأوبار الماصة', 'التركيب الضوئي والنسغ الكامل'],
       },
       {
         id: 'snv_1am_t2',
         trimester: 'T2',
-        title: 'La respiration & L’excrétion chez les êtres vivants',
-        competency: 'Expliquer les échanges gazeux respiratoires et le rôle du rein.',
-        keyPoints: ['Alvéoles pulmonaires et hémoglobine', 'Hygiène de l’appareil respiratoire', 'Fermentation alcoolique chez la levure', 'Élimination de l’urée et régulation'],
+        title: 'التحصل على الطاقة (التنفس والتخمر) والإطراح',
+        competency: 'تفسير المبادلات الغازية التنفسية عند الإنسان والنبات ودور الكلية في الإطراح.',
+        keyPoints: ['الأسناخ الرئوية والمبادلات الغازية', 'قواعد صحية للتنفس', 'التخمر الكحولي عند الخميرة', 'تصفية الدم وإطراح البول والعرق'],
       },
       {
         id: 'snv_1am_t3',
         trimester: 'T3',
-        title: 'La cellule & La reproduction sexuée chez les végétaux/animaux',
-        competency: 'Identifier les constituants cellulaires et le mécanisme de la fécondation.',
-        keyPoints: ['Observation microscopique de la cellule', 'Fécondation interne et externe', 'Fleur, pollen et formation de la graine'],
+        title: 'الخلية والتكاثر الجنسي عند الكائنات الحية',
+        competency: 'التعرف على مكونات الخلية وآلية الإلقاح عند الحيوان والنبات.',
+        keyPoints: ['الفحص المجهري للخلية', 'الإلقاح الداخلي والخارجي', 'الزهرة وتشكل البذرة'],
       },
     ],
     '2AM': [
       {
         id: 'snv_2am_t1',
         trimester: 'T1',
-        title: 'Le milieu de vie & Les relations trophiques (Écosystème)',
-        competency: 'Analyser les composantes d’un écosystème et les chaînes alimentaires.',
-        keyPoints: ['Facteurs biotiques et abiotiques', 'Chaînes et réseaux trophiques', 'Biomasse et équilibre écologique'],
+        title: 'الوسط الحي والعلاقات الغذائية في النظام البيئي',
+        competency: 'تحليل مكونات الوسط الحي والسلاسل والشبكات الغذائية وتوازن النظام البيئي.',
+        keyPoints: ['العناصر الحية واللاحية', 'السلاسل الغذائية والكتلة الحية', 'التوازن البيئي وتأثير الإنسان'],
       },
       {
         id: 'snv_2am_t2',
         trimester: 'T2',
-        title: 'Adaptation des êtres vivants aux milieux & Respiration aquatique/aérienne',
-        competency: 'Relier les structures morphologiques aux modes de locomotion et de respiration.',
-        keyPoints: ['Adaptation au milieu désertique', 'Respiration branchiale, trachéenne et cutanée', 'Modes de déplacement (nage, saut, vol)'],
+        title: 'توزع الكائنات الحية وتكيفها مع أوساطها (التنفس والتنقل)',
+        competency: 'ربط البنيات التشريحية بأنماط التنفس والتنقل والتكيف مع المناخ الجاف.',
+        keyPoints: ['التحورات البنيوية للنباتات الصحراوية', 'التنفس الرئوي، الغلصمي، القصبي والجلدي', 'أنماط التنقل عند الحيوانات'],
       },
       {
         id: 'snv_2am_t3',
         trimester: 'T3',
-        title: 'Reproduction, peuplement des milieux & Classification',
-        competency: 'Expliquer les stratégies de reproduction et la classification moderne.',
-        keyPoints: ['Stratégies r et K', 'Dissémination des graines et spores', 'Notion d’espèce et critères de classification'],
+        title: 'التكاثر وإعمار الأوساط وتصنيف الكائنات الحية',
+        competency: 'تفسير استراتيجيات التكاثر وتحديد مفهوم النوع ومعايير التصنيف.',
+        keyPoints: ['استراتيجية الكم والنوع', 'غزو الأوساط بالبذور والأبواغ', 'مفهوم النوع والتصنيف الحديث'],
       },
     ],
     '3AM': [
       {
         id: 'snv_3am_t1',
         trimester: 'T1',
-        title: 'Géodynamique interne : Séismes, Volcans & Tectonique des plaques',
-        competency: 'Expliquer l’origine des séismes et la dérive des continents.',
-        keyPoints: ['Foyer, épicentre, ondes sismiques', 'Dorsales océaniques et subduction', 'Structure interne du globe (lithosphère/asthénosphère)', 'Prévention des risques sismiques'],
+        title: 'الديناميكية الداخلية للكرة الأرضية: الزلازل، البراكين وتكتونية الصفائح',
+        competency: 'تفسير الظواهر الجيولوجية الداخلية وعلاقتها بحركة الصفائح التكتونية.',
+        keyPoints: ['البؤرة، المركز السطحي والأمواج الزلزالية', 'الظهرات المحيطية وظاهرة الغوص', 'البنية الداخلية للكرة الأرضية', 'الإجراءات الوقائية من الأخطار الزلزالية'],
       },
       {
         id: 'snv_3am_t2',
         trimester: 'T2',
-        title: 'Géodynamique externe : Roches, Érosion & Paysages géologiques',
-        competency: 'Relier la nature des roches algériennes à l’évolution des reliefs.',
-        keyPoints: ['Propriétés physico-chimiques des roches', 'Action de l’eau, du vent et des variations thermiques', 'Ressources naturelles en Algérie (pétrole, nappes)'],
+        title: 'الديناميكية الخارجية: الصخور، الحت وتطور المناظر الطبيعية',
+        competency: 'ربط تنوع المناظر الطبيعية في الجزائر بخواص الصخور وتأثير العوامل المناخية.',
+        keyPoints: ['الخواص الفيزيوكيميائية للصخور', 'تأثير الماء والرياح والحرارة', 'الثروات الباطنية والمائية في الجزائر'],
       },
       {
         id: 'snv_3am_t3',
         trimester: 'T3',
-        title: 'Le sol : formation, propriétés et protection',
-        competency: 'Sensibiliser à la préservation du sol agricole contre la désertification.',
-        keyPoints: ['Constituants minéraux et organiques (humus)', 'Érosion des sols et barrage vert'],
+        title: 'التربة: تشكلها، مكوناتها وحمايتها',
+        competency: 'الوعي بأهمية التربة الزراعية وسبل حمايتها من التصحر والانجراف.',
+        keyPoints: ['المكونات المعدنية والعضوية (الدبال)', 'تشكل التربة ومراحل تطورها', 'السد الأخضر وحماية الأراضي'],
       },
     ],
     '4AM': [
       {
         id: 'snv_4am_t1',
         trimester: 'T1',
-        title: 'Nutrition chez l’Homme : Digestion, Absorption & Transport sanguin',
-        competency: 'Expliquer la transformation enzymatique des aliments et leur distribution cellulaire.',
-        keyPoints: ['Enzymes digestives (amylase, protéase, lipase)', 'Villosités intestinales et voie sanguine/lymphatique', 'Rôle des globules rouges et respiration cellulaire'],
+        title: 'التغذية عند الإنسان: الهضم، الامتصاص ونقل المغذيات',
+        competency: 'تفسير التحولات الأنزيمية للأغذية وآلية الامتصاص المعوي ونقل المغذيات في الدم.',
+        keyPoints: ['الأنزيمات الهاضمة (الأميلاز، البروتياز، الليباز)', 'الزغابة المعوية والطريق الدموي واللمفاوي', 'دور الكريات الحمراء والتنفس الخلوي'],
       },
       {
         id: 'snv_4am_t2',
         trimester: 'T2',
-        title: 'Coordination nerveuse & Réponse immunitaire',
-        competency: 'Analyser l’arc réflexe, les organes sensoriels et les défenses de l’organisme.',
-        keyPoints: ['Neurone, synapse et message nerveux', 'Aires corticales et effets des drogues', 'Barrières naturelles, phagocytose, lymphocytes B/T', 'Vaccination, sérothérapie et allergies'],
+        title: 'التنسيق الوظيفي في العضوية: الاتصال العصبي والاستجابة المناعية',
+        competency: 'تحليل القوس الانعكاسي وتأثير المخدرات وشرح آليات الدفاع المناعي.',
+        keyPoints: ['العصبون، المشبك والرسالة العصبية', 'الساحات الحسية والحركية في المخ', 'الحواجز الطبيعية، البلعمة واللمفاويات B و T', 'التلقيح، الاستمصال والحساسية'],
       },
       {
         id: 'snv_4am_t3',
         trimester: 'BEM',
-        title: 'Transmission des caractères héréditaires & Synthèse BEM',
-        competency: 'Expliquer la formation des gamètes, le caryotype et les maladies génétiques.',
-        keyPoints: ['Caryotype humain (46 chromosomes)', 'Méiose et fécondation', 'Trisomie 21 et hérédité liée au sexe', 'Sujets BEM avec analyse de courbes et expériences'],
+        title: 'انتقال الصفات الوراثية والتحضير لشهادة التعليم المتوسط (BEM)',
+        competency: 'تفسير تشكل الأمشاج والنمط النووي وانتقال الأمراض الوراثية وحل وضعيات BEM.',
+        keyPoints: ['النمط النووي عند الإنسان (46 صبغياً)', 'الانقسام المنصف والإلقاح', 'الصبغيات الجنسية والأمراض الوراثية (التثلاث الصبغي 21)', 'منهجية تحليل المنحنيات والوثائق في BEM'],
       },
     ],
   },
@@ -500,92 +500,92 @@ export const ALGERIAN_CEM_CURRICULUM: Record<SubjectType, Record<LevelType, Curr
       {
         id: 'phy_1am_t1',
         trimester: 'T1',
-        title: 'L’électricité : Circuit électrique simple, Série & Dérivation',
-        competency: 'Réaliser des montages électriques et respecter les règles de sécurité.',
-        keyPoints: ['Schématisation normalisée', 'Conducteurs et isolants', 'Montage en série, en dérivation et va-et-vient', 'Court-circuit et rôle du fusible'],
+        title: 'الظواهر الكهربائية: الدارة الكهربائية البسيطة، التسلسل والتفرع',
+        competency: 'تركيب الدارات الكهربائية وتمثيلها بالرموز النظامية واحترام قواعد الأمن الكهربائي.',
+        keyPoints: ['الرموز النظامية للعناصر الكهربائية', 'النواقل والعوازل', 'الربط على التسلسل، على التفرع وذهاب وإياب', 'الدارة المستقصرة ودور المنصهرة'],
       },
       {
         id: 'phy_1am_t2',
         trimester: 'T2',
-        title: 'La matière : Grandeurs physiques, États & Changements d’état',
-        competency: 'Mesurer masse, volume, masse volumique et expliquer les changements d’état.',
-        keyPoints: ['Masse, volume et masse volumique (ρ = m/V)', 'Modèle particulaire des 3 états', 'Fusion, vaporisation, liquéfaction', 'Mélanges homogènes/hétérogènes et séparation'],
+        title: 'المادة وتحولاتها: القياسات، حالات المادة والخلائط',
+        competency: 'قياس الكتلة والحجم والكتلة الحجمية وتفسير تحولات المادة وفصل الخلائط.',
+        keyPoints: ['الكتلة، الحجم والكتلة الحجمية (ρ = m/V)', 'النموذج الحبيبي لحالات المادة الثلاث', 'الانصهار، التبخر، التكاثف والتجمد', 'فصل الخلائط المتجانسة وغير المتجانسة'],
       },
       {
         id: 'phy_1am_t3',
         trimester: 'T3',
-        title: 'L’optique : Propagation rectiligne de la lumière & Phases lunaires',
-        competency: 'Expliquer l’ombre, la pénombre et les éclipses.',
-        keyPoints: ['Sources lumineuses primaires et secondaires', 'Faisceau lumineux et ombre portée', 'Système Soleil-Terre-Lune'],
+        title: 'الظواهر الضوئية والفلكية: الانتشار المستقيم للضوء وأطوار القمر',
+        competency: 'تفسير تشكل الظل والظليل وظاهرتي الكسوف والخسوف.',
+        keyPoints: ['المنابع الضوئية الأولية والثانوية', 'الحزمة الضوئية والظل المحمول', 'جملة الشمس-الأرض-القمر'],
       },
     ],
     '2AM': [
       {
         id: 'phy_2am_t1',
         trimester: 'T1',
-        title: 'La matière et ses transformations : Physique vs Chimique & Atomes',
-        competency: 'Distinguer transformation physique et chimique et modéliser les molécules.',
-        keyPoints: ['Conservation de la masse (Lavoisier)', 'Électrolyse de l’eau', 'Symboles chimiques et modèles moléculaires'],
+        title: 'المادة وتحولاتها: التحول الفيزيائي والكيميائي والذرات والجزيئات',
+        competency: 'التمييز بين التحول الفيزيائي والكيميائي وتطبيق مبدأ انحفاظ الكتلة ونمذجة الجزيئات.',
+        keyPoints: ['انحفاظ الكتلة خلال التحول الكيميائي', 'التحليل الكهربائي للماء', 'الرموز الكيميائية والنماذج الجزيئية'],
       },
       {
         id: 'phy_2am_t2',
         trimester: 'T2',
-        title: 'Mécanique : Mouvement, Trajectoire & Vitesse',
-        competency: 'Décrire la relativité du mouvement et calculer la vitesse moyenne.',
-        keyPoints: ['Référentiel d’étude', 'Mouvements rectiligne, circulaire, curviligne', 'Vitesse uniforme, accélérée, décélérée (v = d/t)', 'Transmission du mouvement (poulies, engrenages)'],
+        title: 'الظواهر الميكانيكية: الحركة، المسار، السرعة ونقل الحركة',
+        competency: 'وصف نسبية الحركة وحساب السرعة المتوسطة وتحديد طرق نقل الحركة.',
+        keyPoints: ['المرجع ونسبية الحركة', 'المسار المستقيم والمنحني والدائري', 'السرعة الثابتة والمتزايدة والمتناقصة (v = d/t)', 'نقل الحركة بالسيور والمسننات'],
       },
       {
         id: 'phy_2am_t3',
         trimester: 'T3',
-        title: 'Les aimants et le champ magnétique',
-        competency: 'Identifier les pôles magnétiques et l’effet d’un courant sur une aiguille aimantée.',
-        keyPoints: ['Attraction/répulsion magnétique', 'Spectre magnétique et boussole', 'Électroaimant (expérience d’Oersted)'],
+        title: 'الظواهر الكهربائية والمغناطيسية: المغانط والحقل المغناطيسي',
+        competency: 'تحديد أقطاب المغناطيس وإبراز الفعل المتبادل بين التيار الكهربائي والمغناطيس.',
+        keyPoints: ['التجاذب والتنافر المغناطيسي', 'الطيف المغناطيسي والإبرة الممغنطة', 'المغناطيس الكهربائي (تجربة أورستد)'],
       },
     ],
     '3AM': [
       {
         id: 'phy_3am_t1',
         trimester: 'T1',
-        title: 'Réactions chimiques & Équilibrage d’équations',
-        competency: 'Écrire et équilibrer des équations chimiques (combustion des alcanes).',
-        keyPoints: ['Combustion complète et incomplète du méthane/butane', 'Facteurs influençant la réaction chimique', 'Conservation des atomes'],
+        title: 'التفاعلات الكيميائية وموازنة المعادلات الكيميائية',
+        competency: 'كتابة وموازنة معادلات الاحتراق التام وغير التام للفحوم الهيدروجينية.',
+        keyPoints: ['الاحتراق التام وغير التام لغاز الميثان والبوتان', 'العوامل المؤثرة في التفاعل الكيميائي', 'انحفاظ الذرات نوعاً وعدداً'],
       },
       {
         id: 'phy_3am_t2',
         trimester: 'T2',
-        title: 'Chaîne énergétique & Puissance / Énergie électrique',
-        competency: 'Construire une chaîne énergétique et calculer la facture d’électricité.',
-        keyPoints: ['Formes et modes de transfert d’énergie', 'Bilan énergétique', 'Puissance P = U × I et Énergie E = P × t (kWh)'],
+        title: 'السلسلة الطاقة والحصيلة الطاقوية والاستطاعة الكهربائية',
+        competency: 'بناء السلسلة الوظيفية والطاقوية وحساب تكلفة فاتورة الكهرباء والغاز.',
+        keyPoints: ['أشكال الطاقة وأنماط التحويل', 'الحصيلة الطاقوية ومبدأ انحفاظ الطاقة', 'الاستطاعة P = U × I والطاقة E = P × t (kWh)'],
       },
       {
         id: 'phy_3am_t3',
         trimester: 'T3',
-        title: 'Courant continu : Intensité, Tension & Loi d’Ohm',
-        competency: 'Mesurer I et U et appliquer les lois des nœuds, des mailles et U = R × I.',
-        keyPoints: ['Ampèremètre en série, voltmètre en dérivation', 'Lois d’additivité et d’unicité', 'Code des couleurs des résistances et loi d’Ohm'],
+        title: 'التيار الكهربائي المستمر: الشدة، التوتر وقانون أوم',
+        competency: 'قياس الشدة والتوتر وتطبيق قوانين الشدات والتوترات وقانون أوم.',
+        keyPoints: ['جهاز الأمبيرمتر على التسلسل والفولتمتر على التفرع', 'قوانين الشدة والتوتر في التسلسل والتفرع', 'شفرة الألوان للمقاومة وقانون أوم U = R × I'],
       },
     ],
     '4AM': [
       {
         id: 'phy_4am_t1',
         trimester: 'T1',
-        title: 'Électrisation, Courant alternatif & Sécurité électrique',
-        competency: 'Expliquer l’électrisation, l’oscillogramme d’une tension alternative et les protections.',
-        keyPoints: ['Modèle de l’atome et charge électrique', 'Tension max Umax, efficace Ueff, période T et fréquence f', 'Prise de terre, disjoncteur différentiel et fusible'],
+        title: 'الظواهر الكهربائية: التكهرب، التيار المتناوب والأمن الكهربائي',
+        competency: 'تفسير التكهرب وقراءة راسم الاهتزاز المهبطي وتأمين الشبكة الكهربائية المنزلية.',
+        keyPoints: ['بنية الذرة والشحنة الكهربائية', 'التوتر الأعظمي Umax والفعال Ueff والدور T والتواتر f', 'المأخذ الأرضي، القاطع التفاضلي والمنصهرة'],
       },
       {
         id: 'phy_4am_t2',
         trimester: 'T2',
-        title: 'Solutions ioniques, pH & Réactions acide/métal',
-        competency: 'Identifier les ions (Cl⁻, Cu²⁺, Fe²⁺, SO₄²⁻) et équilibrer les équations ioniques.',
-        keyPoints: ['Électrolyse d’une solution ionique', 'Réaction HCl avec Fe, Zn, Al', 'Réaction acide-calcaire (CaCO₃)'],
+        title: 'المادة وتحولاتها: المحاليل الشاردية وتفاعلات الأحماض مع المعادن',
+        competency: 'الكشف عن الشوارد وكتابة وموازنة المعادلات الكيميائية بالصيغة الشاردية والإحصائية.',
+        keyPoints: ['التحليل الكهربائي البسيط لمحلول شاردي', 'تفاعل حمض كلور الماء HCl مع الحديد والزنك والألمنيوم', 'الكشف عن الشوارد (Cl⁻, Cu²⁺, Fe²⁺, SO₄²⁻)'],
       },
       {
         id: 'phy_4am_t3',
         trimester: 'BEM',
-        title: 'Mécanique : Forces, Poids, Équilibre & Poussée d’Archimède (BEM)',
-        competency: 'Représenter les forces (P, R, T, Fa) et résoudre des situations d’équilibre BEM.',
-        keyPoints: ['Action mécanique et principe des actions réciproques', 'Relation P = m × g', 'Condition d’équilibre d’un solide soumis à 2 ou 3 forces', 'Poussée d’Archimède (Fa = ρ·V·g) et optique (miroir plan)'],
+        title: 'الميكانيك والضوء: القوى، الثقل، التوازن، دافعة أرخميدس والمرايا (BEM)',
+        competency: 'تمثيل القوى وحل وضعيات توازن جسم صلب ودافعة أرخميدس استعداداً لشهادة BEM.',
+        keyPoints: ['الجملة الميكانيكية ومبدأ الفعلين المتبادلين', 'علاقة الثقل بالكتلة P = m × g', 'شرطا توازن جسم خاضع لقوتين أو ثلاث قوى', 'دافعة أرخميدس (Fa = ρ·V·g) وقوانين الانعكاس'],
       },
     ],
   },
@@ -656,3 +656,110 @@ export const ALGERIAN_CEM_CURRICULUM: Record<SubjectType, Record<LevelType, Curr
     ],
   },
 };
+
+export function buildSubjectStarterContent(params: {
+  subject: SubjectType;
+  level: LevelType;
+  docType: 'cours' | 'fiche' | 'examen' | 'devoir' | 'exercice';
+  language: 'fr' | 'ar' | 'en';
+  topicTitle: string;
+}): { title: string; contentMarkdown: string; svgDiagram: string } {
+  const { subject, level, docType, language, topicTitle } = params;
+
+  if (language === 'en') {
+    const typeTitle =
+      docType === 'fiche'
+        ? 'Lesson Plan (Fiche Pédagogique)'
+        : docType === 'examen'
+          ? 'Term Exam'
+          : docType === 'devoir'
+            ? 'Class Test'
+            : docType === 'exercice'
+              ? 'Practice Worksheet'
+              : 'Lesson Summary';
+    return {
+      title: `${typeTitle} — ${topicTitle} (${level})`,
+      svgDiagram: '',
+      contentMarkdown: `## ${topicTitle}
+
+| Pedagogical Element | Details |
+| :--- | :--- |
+| **Level** | ${level} (Algerian Middle School) |
+| **Subject** | English |
+| **Document Type** | ${typeTitle} |
+
+### Learning Objectives & Procedure
+
+1. **Warm-up:** Activate prior knowledge related to **${topicTitle}**.
+2. **Presentation & Discovery (PIASP):** Contextualised text, comprehension check, and language isolation.
+3. **Practice & Integration:** Graded tasks and situation of integration.
+
+*Click **« Générer avec l’Enseignant IA »** to produce the complete ${level} English ${typeTitle.toLowerCase()} with answer key and marking scale.*`,
+    };
+  }
+
+  if (language === 'fr') {
+    const typeTitle =
+      docType === 'fiche'
+        ? 'Fiche Pédagogique'
+        : docType === 'examen'
+          ? 'Composition Trimestrielle'
+          : docType === 'devoir'
+            ? 'Devoir Surveillé'
+            : docType === 'exercice'
+              ? 'Série d’Exercices'
+              : 'Cours Structuré';
+    return {
+      title: `${typeTitle} — ${topicTitle} (${level})`,
+      svgDiagram: '',
+      contentMarkdown: `## ${topicTitle}
+
+| Élément pédagogique | Détail |
+| :--- | :--- |
+| **Niveau** | ${level} (CEM Algérie) |
+| **Matière** | ${subject} |
+| **Type** | ${typeTitle} |
+
+### Déroulement prévu
+
+1. **Mise en situation :** Découverte du thème **${topicTitle}**.
+2. **Analyse & Construction :** Observation, manipulation des outils linguistiques et structuration.
+3. **Réinvestissement / Évaluation :** Exercices ciblés et situation d’intégration.
+
+*Cliquez sur **« Générer avec l’Enseignant IA »** pour rédiger l’intégralité du document avec corrigé type et barème.*`,
+    };
+  }
+
+  // Arabic (Mathématiques, Sciences Naturelles, Physique, Arabe)
+  const typeAr =
+    docType === 'fiche'
+      ? 'مذكرة بيداغوجية'
+      : docType === 'examen'
+        ? 'اختبار الثلاثي'
+        : docType === 'devoir'
+          ? 'فرض محروس'
+          : docType === 'exercice'
+            ? 'سلسلة تمارين'
+            : 'ملخص الدرس';
+
+  return {
+    title: `${typeAr} — ${topicTitle} (${level})`,
+    svgDiagram: '',
+    contentMarkdown: `## ${topicTitle}
+
+| العنصر البيداغوجي | التوضيح |
+| :--- | :--- |
+| **المستوى** | ${level} (التعليم المتوسط) |
+| **المادة** | ${SUBJECT_META[subject].labelAr} |
+| **نوع الوثيقة** | ${typeAr} |
+
+### العناصر الأساسية
+
+1. **الوضعية الانطلاقية:** تقديم المشكل العلمي أو المعرفي المرتبط بـ **${topicTitle}**.
+2. **سير الحصة / الأنشطة:** بناء المفاهيم، تطبيقات تدريجية، ثم الوضعية الإدماجية.
+3. **التقويم والتصحيح:** شبكة التقييم وسلّم التنقيط على 20.
+
+*اضغط على زر **« Générer avec l’Enseignant IA »** لإنتاج الوثيقة الكاملة مع الحل النموذجي وسلّم التنقيط.*`,
+  };
+}
+

@@ -1,4 +1,5 @@
 import React from 'react';
+import { SUBJECT_META } from '../data/algerianCurriculum';
 import {
   DocType,
   HandwritingMode,
@@ -226,6 +227,12 @@ export const DocumentSheet: React.FC<DocumentSheetProps> = ({
         : 'text-slate-900';
 
   const docTypeLabel = DOC_TYPE_LABELS[docType][language];
+  const localizedSubject =
+    language === 'ar'
+      ? SUBJECT_META[subject].labelAr
+      : language === 'en'
+        ? SUBJECT_META[subject].labelEn
+        : subject;
 
   return (
     <div
@@ -246,7 +253,7 @@ export const DocumentSheet: React.FC<DocumentSheetProps> = ({
             {schoolName || (language === 'ar' ? 'متوسطة (التعليم المتوسط)' : 'Établissement : CEM')}
           </span>
           <span className="font-mono-tabular">
-            {level} · {subject} · {trimester} · {docTypeLabel}
+            {level} · {localizedSubject} · {trimester} · {docTypeLabel}
           </span>
         </div>
 
@@ -342,7 +349,7 @@ export const DocumentSheet: React.FC<DocumentSheetProps> = ({
           <span>
             {language === 'ar' ? `إعداد الأستاذ(ة): ${teacherName}` : `Préparé par : ${teacherName}`}
           </span>
-          <span>{level} · {subject}</span>
+          <span>{level} · {localizedSubject}</span>
         </footer>
       )}
     </div>

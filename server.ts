@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +51,29 @@ function getGeminiClient() {
       },
     },
   });
+}
+
+function safeParseJson<T>(raw: string | undefined): T {
+  const cleaned = (raw ?? '{}')
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  return JSON.parse(cleaned) as T;
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('503') || msg.includes('500') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')) {
+      await new Promise((r) => setTimeout(r, 600));
+      return await fn();
+    }
+    throw err;
+  }
 }
 
 function getFriendlyGeminiError(error: unknown): { status: number; message: string } {
@@ -126,38 +149,51 @@ Génère un document pédagogique prêt à imprimer et à exporter en Word/PDF a
 - Durée prévue : ${durationMinutes || 60} minutes
 - Inclure corrigé type et grille de barème : ${includeCorrection ? 'OUI, inclure à la fin une section séparée "Corrigé type et barème détaillé"' : 'NON'}
 - Instructions complémentaires de l’enseignant : ${customInstructions || 'Aucune'}
-${includeDiagram ? '- Génère également un schéma vectoriel SVG propre et lisible (viewBox="0 0 600 320", fond blanc, traits nets noirs/bleu/vert avec étiquettes claires) illustrant un concept clé ou une figure géométrique/scientifique du document.' : '- Mets svgDiagram à une chaîne vide "".'}
+${includeDiagram ? '- Génère aussi un schéma SVG simple et propre (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 280" width="600" height="280">...</svg>, fond blanc, max 20 éléments) si le sujet s’y prête ; sinon mets svgDiagram à "".' : '- Mets svgDiagram à "".'}
 
 Règles strictes de rédaction :
 1. Respecte scrupuleusement la terminologie, les compétences et la progression officielle du programme algérien (${level} ${subject}).
-2. Rédige intégralement le titre et le contenu en ${languageLabel}.
+2. Rédige intégralement le titre et le contenu en ${languageLabel}. En Algérie, les matières Mathématiques, Sciences Naturelles et Sciences Physiques du cycle moyen (CEM) utilisent la terminologie arabe officielle du MEN (مذكرة بيداغوجية، الكفاءة الختامية، الوضعية الانطلاقية، فرض محروس، اختبار، الوضعية الإدماجية، التصحيح النموذجي، سلم التنقيط) avec les symboles scientifiques et géométriques standards (مثل A, B, C, x, y, cm, m, V, A, Ω).
 3. Utilise un Markdown propre : titres (#, ##, ###), listes numérotées, tableaux Markdown (| ... |) pour les barèmes ou fiches techniques, et formules mathématiques claires (Unicode comme ×, ÷, √, ², π, ≤, ≥, °, →).
 4. Ne mets pas d'en-tête administratif redondant en haut du Markdown (l'application affiche déjà l'en-tête officiel du CEM), commence directement par le titre et les sections pédagogiques.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: prompt,
-      config: {
-        systemInstruction:
-          "Tu es un assistant pédagogique algérien expert du CEM. Tu produis des cours, fiches, devoirs et examens rigoureux, fidèles au curriculum officiel algérien, prêts pour l'impression A4.",
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING, description: 'Titre clair et concis du document dans la langue choisie.' },
-            summary: { type: Type.STRING, description: 'Résumé court en 1 phrase de la compétence visée.' },
-            contentMarkdown: { type: Type.STRING, description: 'Contenu complet du document en Markdown propre.' },
-            svgDiagram: {
-              type: Type.STRING,
-              description: 'Code SVG complet (<svg viewBox="0 0 600 320" ...>...</svg>) ou chaîne vide.',
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            "Tu es un assistant pédagogique algérien expert du CEM. Tu produis des cours, fiches, devoirs et examens rigoureux, fidèles au curriculum officiel algérien, prêts pour l'impression A4.",
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING, description: 'Titre clair et concis du document dans la langue choisie.' },
+              summary: { type: Type.STRING, description: 'Résumé court en 1 phrase de la compétence visée.' },
+              contentMarkdown: { type: Type.STRING, description: 'Contenu complet du document en Markdown propre.' },
+              svgDiagram: {
+                type: Type.STRING,
+                description: 'Code SVG complet (<svg viewBox="0 0 600 280" ...>...</svg>) ou chaîne vide.',
+              },
             },
+            required: ['title', 'summary', 'contentMarkdown', 'svgDiagram'],
           },
-          required: ['title', 'summary', 'contentMarkdown', 'svgDiagram'],
         },
-      },
-    });
+      })
+    );
 
-    const parsed = JSON.parse((response.text ?? '{}').trim());
+    const parsed = safeParseJson<{
+      title?: string;
+      summary?: string;
+      contentMarkdown?: string;
+      svgDiagram?: string;
+    }>(response.text);
+
+    if (!parsed.contentMarkdown) {
+      throw new Error('Réponse IA vide, veuillez réessayer.');
+    }
+
     return res.json(parsed);
   } catch (error) {
     console.error('Error in /api/ai/generate-document:', error);
@@ -187,23 +223,26 @@ Contraintes techniques obligatoires pour le SVG :
 - Texte lisible (font-family="sans-serif", font-size="13" à "15"), sans chevauchement ni débordement hors de 0..640 x 0..360
 - Pas de scripts ni d'images externes.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            caption: { type: Type.STRING, description: 'Légende courte du schéma.' },
-            svg: { type: Type.STRING, description: 'Code SVG complet et valide.' },
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              caption: { type: Type.STRING, description: 'Légende courte du schéma.' },
+              svg: { type: Type.STRING, description: 'Code SVG complet et valide.' },
+            },
+            required: ['caption', 'svg'],
           },
-          required: ['caption', 'svg'],
         },
-      },
-    });
+      })
+    );
 
-    const parsed = JSON.parse((response.text ?? '{}').trim());
+    const parsed = safeParseJson<{ caption?: string; svg?: string }>(response.text);
     return res.json(parsed);
   } catch (error) {
     console.error('Error in /api/ai/generate-diagram:', error);
@@ -235,23 +274,26 @@ Paramètres :
 
 Donne un ton respectueux, clair, adapté au contexte éducatif algérien (avec mention BaridiMob / CCP / remise en main propre si paiement).`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            subjectLine: { type: Type.STRING, description: 'Objet court du message.' },
-            messageBody: { type: Type.STRING, description: 'Corps du message prêt à copier.' },
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              subjectLine: { type: Type.STRING, description: 'Objet court du message.' },
+              messageBody: { type: Type.STRING, description: 'Corps du message prêt à copier.' },
+            },
+            required: ['subjectLine', 'messageBody'],
           },
-          required: ['subjectLine', 'messageBody'],
         },
-      },
-    });
+      })
+    );
 
-    const parsed = JSON.parse((response.text ?? '{}').trim());
+    const parsed = safeParseJson<{ subjectLine?: string; messageBody?: string }>(response.text);
     return res.json(parsed);
   } catch (error) {
     console.error('Error in /api/ai/correspondent-message:', error);

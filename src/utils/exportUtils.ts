@@ -12,6 +12,7 @@ import {
   TextRun,
   WidthType,
 } from 'docx';
+import { SUBJECT_META } from '../data/algerianCurriculum';
 import { HandwritingMode, LanguageType, LevelType, SubjectType } from '../types';
 
 interface ExportDocOptions {
@@ -125,9 +126,16 @@ export async function exportToWordDocx(opts: ExportDocOptions): Promise<void> {
       ? "People's Democratic Republic of Algeria — Ministry of National Education (Middle School)"
       : 'République Algérienne Démocratique et Populaire — Ministère de l’Éducation Nationale (CEM)';
 
+  const localizedSubject =
+    opts.language === 'ar'
+      ? SUBJECT_META[opts.subject].labelAr
+      : opts.language === 'en'
+        ? SUBJECT_META[opts.subject].labelEn
+        : opts.subject;
+
   const metaLine = isRtl
-    ? `المستوى: ${opts.level} | المادة: ${opts.subject} | الفصل: ${opts.trimester}${opts.schoolName ? ` | المؤسسة: ${opts.schoolName}` : ''}`
-    : `Niveau : ${opts.level} · Matière : ${opts.subject} · Période : ${opts.trimester}${opts.schoolName ? ` · ${opts.schoolName}` : ''}`;
+    ? `المستوى: ${opts.level} | المادة: ${localizedSubject} | الفصل: ${opts.trimester}${opts.schoolName ? ` | المؤسسة: ${opts.schoolName}` : ''}`
+    : `Niveau : ${opts.level} · Matière : ${localizedSubject} · Période : ${opts.trimester}${opts.schoolName ? ` · ${opts.schoolName}` : ''}`;
 
   const children: (Paragraph | Table)[] = [
     new Paragraph({

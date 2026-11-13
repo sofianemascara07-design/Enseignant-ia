@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Download,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import {
   ALGERIAN_CEM_CURRICULUM,
+  buildSubjectStarterContent,
   CURATED_ILLUSTRATIONS,
   LEVELS,
   SUBJECTS,
@@ -96,6 +97,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [hasGeneratedCustomContent, setHasGeneratedCustomContent] = useState(Boolean(draft.id));
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [showShareModal, setShowShareModal] = useState(false);
@@ -106,25 +108,100 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSubjectChange = (newSubject: SubjectType) => {
-    const firstTopic = ALGERIAN_CEM_CURRICULUM[newSubject][draft.level]?.[0];
-    setSelectedTopic(firstTopic?.title || '');
+  useEffect(() => {
+    const validTopic = ALGERIAN_CEM_CURRICULUM[draft.subject][draft.level]?.[0];
+    setSelectedTopic((curr) => {
+      const stillExists = ALGERIAN_CEM_CURRICULUM[draft.subject][draft.level]?.some(
+        (t) => t.title === curr
+      );
+      return stillExists ? curr : validTopic?.title || '';
+    });
+  }, [draft.subject, draft.level]);
+
+  const applyStarterIfNeeded = (
+    nextSubject: SubjectType,
+    nextLevel: LevelType,
+    nextDocType: DocType,
+    nextLang: LanguageType,
+    nextTrimester: TrimesterType,
+    topicTitle: string,
+    forceReplace: boolean
+  ) => {
+    const starter = buildSubjectStarterContent({
+      subject: nextSubject,
+      level: nextLevel,
+      docType: nextDocType,
+      language: nextLang,
+      topicTitle: topicTitle || `${nextSubject} ${nextLevel}`,
+    });
     onUpdateDraft((prev) => ({
       ...prev,
-      subject: newSubject,
-      language: SUBJECT_META[newSubject].defaultLang,
-      trimester: firstTopic?.trimester || prev.trimester,
+      id: forceReplace ? undefined : prev.id,
+      subject: nextSubject,
+      level: nextLevel,
+      docType: nextDocType,
+      language: nextLang,
+      trimester: nextTrimester,
+      ...(forceReplace || !hasGeneratedCustomContent
+        ? {
+            title: starter.title,
+            contentMarkdown: starter.contentMarkdown,
+            svgDiagram: starter.svgDiagram,
+          }
+        : {}),
     }));
+  };
+
+  const handleSubjectChange = (newSubject: SubjectType) => {
+    const firstTopic = ALGERIAN_CEM_CURRICULUM[newSubject][draft.level]?.[0];
+    const nextTopicTitle = firstTopic?.title || `${newSubject} ${draft.level}`;
+    const nextLang = SUBJECT_META[newSubject].defaultLang;
+    setSelectedTopic(nextTopicTitle);
+    setHasGeneratedCustomContent(false);
+    setErrorMsg(null);
+    applyStarterIfNeeded(
+      newSubject,
+      draft.level,
+      draft.docType,
+      nextLang,
+      firstTopic?.trimester || draft.trimester,
+      nextTopicTitle,
+      true
+    );
   };
 
   const handleLevelChange = (newLevel: LevelType) => {
     const firstTopic = ALGERIAN_CEM_CURRICULUM[draft.subject][newLevel]?.[0];
-    setSelectedTopic(firstTopic?.title || '');
-    onUpdateDraft((prev) => ({
-      ...prev,
-      level: newLevel,
-      trimester: firstTopic?.trimester || prev.trimester,
-    }));
+    const nextTopicTitle = firstTopic?.title || `${draft.subject} ${newLevel}`;
+    setSelectedTopic(nextTopicTitle);
+    setErrorMsg(null);
+    applyStarterIfNeeded(
+      draft.subject,
+      newLevel,
+      draft.docType,
+      draft.language,
+      firstTopic?.trimester || draft.trimester,
+      nextTopicTitle,
+      false
+    );
+  };
+
+  const parseApiResponse = async (res: Response) => {
+    const raw = await res.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    } catch {
+      throw new Error(
+        res.ok
+          ? 'Réponse serveur inattendue.'
+          : `Erreur serveur (${res.status}). Veuillez réessayer.`
+      );
+    }
+    if (!res.ok) {
+      throw new Error(String(data.error || `Erreur serveur (${res.status}).`));
+    }
+    return data;
   };
 
   const handleGenerateDocument = async () => {
@@ -149,16 +226,14 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
           durationMinutes,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Échec de la génération.');
-      }
+      const data = await parseApiResponse(res);
       onUpdateDraft((prev) => ({
         ...prev,
-        title: data.title || topicToUse,
-        contentMarkdown: data.contentMarkdown || prev.contentMarkdown,
-        svgDiagram: data.svgDiagram || '',
+        title: String(data.title || topicToUse),
+        contentMarkdown: String(data.contentMarkdown || prev.contentMarkdown),
+        svgDiagram: String(data.svgDiagram || ''),
       }));
+      setHasGeneratedCustomContent(true);
       setIsEditing(false);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erreur lors de la génération.');
@@ -184,13 +259,10 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
           description: desc,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Impossible de générer le schéma.');
-      }
+      const data = await parseApiResponse(res);
       onUpdateDraft((prev) => ({
         ...prev,
-        svgDiagram: data.svg || '',
+        svgDiagram: String(data.svg || ''),
       }));
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erreur lors de la création du schéma.');
@@ -343,9 +415,18 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1.5">Langue de rédaction</label>
               <select
                 value={draft.language}
-                onChange={(e) =>
-                  onUpdateDraft((prev) => ({ ...prev, language: e.target.value as LanguageType }))
-                }
+                onChange={(e) => {
+                  const nextLang = e.target.value as LanguageType;
+                  applyStarterIfNeeded(
+                    draft.subject,
+                    draft.level,
+                    draft.docType,
+                    nextLang,
+                    draft.trimester,
+                    selectedTopic,
+                    false
+                  );
+                }}
                 className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
               >
                 <option value="fr">Français</option>
@@ -361,9 +442,18 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               <label className="block text-xs font-medium text-slate-700 mb-1.5">Type de support</label>
               <select
                 value={draft.docType}
-                onChange={(e) =>
-                  onUpdateDraft((prev) => ({ ...prev, docType: e.target.value as DocType }))
-                }
+                onChange={(e) => {
+                  const nextDocType = e.target.value as DocType;
+                  applyStarterIfNeeded(
+                    draft.subject,
+                    draft.level,
+                    nextDocType,
+                    draft.language,
+                    draft.trimester,
+                    selectedTopic,
+                    false
+                  );
+                }}
                 className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
               >
                 <option value="cours">Cours complet</option>
@@ -492,6 +582,12 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               </>
             )}
           </button>
+
+          {errorMsg && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
+              {errorMsg}
+            </div>
+          )}
 
           {/* Handwriting & Paper Style Studio */}
           <div className="pt-5 border-t border-slate-200 space-y-4">
@@ -655,6 +751,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
 
         {/* Right A4 Document Toolbar & Live Sheet */}
         <section className="lg:col-span-8 space-y-4">
+          {errorMsg && (
+            <div className="no-print p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
+              {errorMsg}
+            </div>
+          )}
           <div className="no-print bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <span>{draft.level}</span>

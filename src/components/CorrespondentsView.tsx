@@ -184,7 +184,13 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
           subjectFocus: aiTargetCorr.subjectFocus,
         }),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data: Record<string, string> = {};
+      try {
+        data = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+      } catch {
+        throw new Error(`Erreur serveur (${res.status}). Veuillez réessayer.`);
+      }
       if (!res.ok) {
         throw new Error(data.error || 'Erreur génération message IA.');
       }

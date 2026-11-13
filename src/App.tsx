@@ -18,6 +18,7 @@ import { ActiveDraft, AtelierView } from './components/AtelierView';
 import { CorrespondentsView } from './components/CorrespondentsView';
 import { CurriculumView } from './components/CurriculumView';
 import { LibraryView } from './components/LibraryView';
+import { buildSubjectStarterContent } from './data/algerianCurriculum';
 import {
   auth,
   db,
@@ -52,11 +53,11 @@ const STARTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 28
 </svg>`;
 
 const INITIAL_DRAFT: ActiveDraft = {
-  title: 'Devoir Surveillé N°1 — Théorème de Thalès & Trigonométrie (4AM)',
+  title: 'فرض محروس رقم 01 للثلاثي الأول — مادة الرياضيات (4 متوسط)',
   docType: 'devoir',
   subject: 'Mathématiques',
   level: '4AM',
-  language: 'fr',
+  language: 'ar',
   trimester: 'T1',
   handwritingMode: 'standard',
   paperStyle: 'white',
@@ -65,30 +66,31 @@ const INITIAL_DRAFT: ActiveDraft = {
   attachedImageUrl: '',
   priceDzd: 300,
   isPaidTemplate: false,
-  contentMarkdown: `## Exercice 01 : Calcul numérique et PGCD (6 points)
+  contentMarkdown: `## التمرين الأول: الحساب العددي و PGCD (06 نقاط)
 
-1. Calculer le **PGCD(420 ; 252)** en utilisant l’algorithme d’Euclide.
-2. Rendre la fraction **252 / 420** irréductible en détaillant les étapes.
-3. Calculer l’expression : **A = √75 − 2√12 + √27** et l’écrire sous la forme **a√3**.
+1. احسب القاسم المشترك الأكبر للعددين **420** و **252** باستعمال خوارزمية إقليدس: **PGCD(420 ; 252)**.
+2. اكتب الكسر **252 / 420** على شكل كسر غير قابل للاختزال مع إبراز مراحل الحساب.
+3. بسط العبارة التالية واكتبها على الشكل **a√3** حيث **a** عدد صحيح:
+   **A = √75 − 2√12 + √27**
 
-## Exercice 02 : Géométrie — Théorème de Thalès (6 points)
+## التمرين الثاني: الهندسة — مبرهنة طالس والنسب المثلثية (06 نقاط)
 
-Soit **ABC** un triangle rectangle en **B** tel que **AB = 6 cm** et **BC = 8 cm** (voir figure ci-dessous).
-On place le point **M** sur **[AB]** tel que **AM = 3 cm**, puis on trace la parallèle à **(BC)** passant par **M** ; elle coupe **[AC]** en **N**.
+**ABC** مثلث قائم في **B** حيث **AB = 6 cm** و **BC = 8 cm** (انظر الشكل المقابل).
+نعيّن النقطة **M** من الضلع **[AB]** حيث **AM = 3 cm**، ثم نرسم المستقيم الموازي لـ **(BC)** والمار من **M** فيقطع **[AC]** في النقطة **N**.
 
-1. Calculer la longueur **AC** en appliquant le théorème de Pythagore.
-2. Calculer les longueurs **AN** et **MN** à l’aide du théorème de Thalès.
-3. Déterminer la mesure de l’angle **ACB** arrondie au degré près.
+1. احسب الطول **AC** بتطبيق خاصية فيتاغورس.
+2. احسب الطولين **AN** و **MN** باستعمال مبرهنة طالس.
+3. احسب قيس الزاوية **ACB** ثم أوجد مدوّرها إلى الوحدة من الدرجة.
 
-## Situation d’intégration (8 points)
+## الوضعية الإدماجية (08 نقاط)
 
-Un établissement CEM souhaite aménager une rampe d’accès pour personnes à mobilité réduite devant le bloc administratif. La hauteur du seuil est de **0,90 m** et la rampe forme un angle de **8°** avec le sol horizontal.
+ترغب متوسطة في تهيئة ممر مائل (منحدر) لتسهيل ولوج التلاميذ ذوي الاحتياجات الخاصة أمام الجناح الإداري. إذا علمت أن ارتفاع العتبة هو **0,90 m** وأن الممر يصنع زاوية قيسها **8°** مع سطح الأرض الأفقي:
 
-| Critère d’évaluation | Indicateur de réussite | Barème |
+| معيار التقويم | مؤشرات الإجابة | العلامة |
 | :--- | :--- | :---: |
-| Modélisation géométrique | Schéma du triangle rectangle annoté | 2,0 pts |
-| Calcul trigonométrique | Utilisation correcte de sin(8°) ou tan(8°) | 4,0 pts |
-| Rédaction et unité | Phrase réponse claire en mètres | 2,0 pts |`,
+| التفسير السليم للوضعية | نمذجة الوضعية بمثلث قائم مرفق بالمعطيات | 2,0 ن |
+| الاستعمال السليم للأدوات | تطبيق النسب المثلثية (**sin 8°** أو **tan 8°**) بدقة | 4,0 ن |
+| الانسجام وتقديم الورقة | صياغة الجواب بوضوح مع كتابة الوحدة (**m**) | 2,0 ن |`,
 };
 
 function makeSafeId(prefix: string): string {
@@ -417,15 +419,26 @@ export default function App() {
     topicTitle: string;
     language: 'fr' | 'ar' | 'en';
   }) => {
-    setDraft((prev) => ({
-      ...prev,
-      id: undefined,
-      subject: params.subject,
-      level: params.level,
-      trimester: params.trimester,
-      language: params.language,
-      title: params.topicTitle,
-    }));
+    setDraft((prev) => {
+      const starter = buildSubjectStarterContent({
+        subject: params.subject,
+        level: params.level,
+        docType: prev.docType,
+        language: params.language,
+        topicTitle: params.topicTitle,
+      });
+      return {
+        ...prev,
+        id: undefined,
+        subject: params.subject,
+        level: params.level,
+        trimester: params.trimester,
+        language: params.language,
+        title: starter.title,
+        contentMarkdown: starter.contentMarkdown,
+        svgDiagram: starter.svgDiagram,
+      };
+    });
     setActiveTab('atelier');
   };
 
