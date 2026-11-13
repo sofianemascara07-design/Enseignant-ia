@@ -1,0 +1,324 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private teacher profile for an Algerian CEM educator.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 180
+        },
+        "schoolName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "wilaya": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "defaultSubject": {
+          "type": "string",
+          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "email", "createdAt", "updatedAt"]
+    },
+    "PedagogicDocument": {
+      "title": "PedagogicDocument",
+      "description": "A generated or edited course, fiche pedagogique, or exam subject for Algerian CEM.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "docType": {
+          "type": "string",
+          "enum": ["cours", "fiche", "examen", "devoir", "exercice"]
+        },
+        "subject": {
+          "type": "string",
+          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe"]
+        },
+        "level": {
+          "type": "string",
+          "enum": ["1AM", "2AM", "3AM", "4AM"]
+        },
+        "language": {
+          "type": "string",
+          "enum": ["fr", "ar", "en"]
+        },
+        "trimester": {
+          "type": "string",
+          "enum": ["T1", "T2", "T3", "BEM"]
+        },
+        "handwritingMode": {
+          "type": "string",
+          "enum": ["standard", "handwriting_print", "handwriting_cursive"]
+        },
+        "paperStyle": {
+          "type": "string",
+          "enum": ["white", "seyes", "lined", "grid"]
+        },
+        "inkColor": {
+          "type": "string",
+          "enum": ["navy", "black", "emerald"]
+        },
+        "contentMarkdown": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120000
+        },
+        "svgDiagram": {
+          "type": "string",
+          "maxLength": 120000
+        },
+        "priceDzd": {
+          "type": "number"
+        },
+        "isPaidTemplate": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "docType",
+        "subject",
+        "level",
+        "language",
+        "trimester",
+        "handwritingMode",
+        "paperStyle",
+        "inkColor",
+        "contentMarkdown",
+        "priceDzd",
+        "isPaidTemplate",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Correspondent": {
+      "title": "Correspondent",
+      "description": "A correspondent (colleague, parent, student, or private school) managed with paid subscriptions or document packs.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "roleType": {
+          "type": "string",
+          "enum": ["Collègue CEM", "Parent d'élève", "Élève Soutien", "Établissement"]
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "wilaya": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "subjectFocus": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "levelFocus": {
+          "type": "string",
+          "enum": ["1AM", "2AM", "3AM", "4AM", "Tous niveaux"]
+        },
+        "planName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "balanceDueDzd": {
+          "type": "number"
+        },
+        "totalPaidDzd": {
+          "type": "number"
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["paid", "pending", "overdue"]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "fullName",
+        "roleType",
+        "levelFocus",
+        "planName",
+        "balanceDueDzd",
+        "totalPaidDzd",
+        "paymentStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "A paid document share or subscription invoice linked to a correspondent.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "correspondentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "correspondentName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "documentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "documentTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "amountDzd": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "paid", "overdue", "cancelled"]
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "aiMessageDraft": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "correspondentId",
+        "correspondentName",
+        "documentTitle",
+        "amountDzd",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated teacher profile isolated to the owner."
+    },
+    "/documents/{docId}": {
+      "schema": { "$ref": "#/entities/PedagogicDocument" },
+      "description": "Teacher-prepared courses, fiches pedagogiques, and exam subjects."
+    },
+    "/correspondents/{correspondentId}": {
+      "schema": { "$ref": "#/entities/Correspondent" },
+      "description": "Directory of correspondents with payment status and plan details."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Paid shares and invoices issued to correspondents."
+    }
+  }
+}

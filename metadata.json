@@ -1,0 +1,8 @@
+{
+  "name": "Madrassati CEM — Enseignant IA",
+  "description": "Assistant IA pour enseignants du cycle moyen algérien (CEM) : cours, fiches pédagogiques, sujets d'examens, schémas, écriture manuscrite FR/AR/EN, export PDF/Word et gestion payante des correspondants.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

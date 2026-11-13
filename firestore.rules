@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwnerUid(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    // Validation Blueprint: UserProfile
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'schoolName', 'wilaya', 'defaultSubject', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && (!('schoolName' in data) || (data.schoolName is string && data.schoolName.size() <= 160))
+        && (!('wilaya' in data) || (data.wilaya is string && data.wilaya.size() <= 80))
+        && (!('defaultSubject' in data) || (data.defaultSubject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe']))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: PedagogicDocument
+    function isValidPedagogicDocument(data, docId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'title', 'docType', 'subject', 'level', 'language',
+          'trimester', 'handwritingMode', 'paperStyle', 'inkColor',
+          'contentMarkdown', 'priceDzd', 'isPaidTemplate', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'title', 'docType', 'subject', 'level', 'language',
+          'trimester', 'handwritingMode', 'paperStyle', 'inkColor',
+          'contentMarkdown', 'svgDiagram', 'priceDzd', 'isPaidTemplate', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == docId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.docType in ['cours', 'fiche', 'examen', 'devoir', 'exercice']
+        && data.subject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe']
+        && data.level in ['1AM', '2AM', '3AM', '4AM']
+        && data.language in ['fr', 'ar', 'en']
+        && data.trimester in ['T1', 'T2', 'T3', 'BEM']
+        && data.handwritingMode in ['standard', 'handwriting_print', 'handwriting_cursive']
+        && data.paperStyle in ['white', 'seyes', 'lined', 'grid']
+        && data.inkColor in ['navy', 'black', 'emerald']
+        && data.contentMarkdown is string && data.contentMarkdown.size() >= 1 && data.contentMarkdown.size() <= 120000
+        && (!('svgDiagram' in data) || (data.svgDiagram is string && data.svgDiagram.size() <= 120000))
+        && data.priceDzd is number && data.priceDzd >= 0 && data.priceDzd <= 1000000
+        && data.isPaidTemplate is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Correspondent
+    function isValidCorrespondent(data, corrId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'fullName', 'roleType', 'levelFocus', 'planName',
+          'balanceDueDzd', 'totalPaidDzd', 'paymentStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'fullName', 'roleType', 'email', 'phone', 'wilaya',
+          'subjectFocus', 'levelFocus', 'planName', 'balanceDueDzd', 'totalPaidDzd',
+          'paymentStatus', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == corrId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && data.roleType in ['Collègue CEM', "Parent d'élève", 'Élève Soutien', 'Établissement']
+        && (!('email' in data) || (data.email is string && data.email.size() <= 180))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && (!('wilaya' in data) || (data.wilaya is string && data.wilaya.size() <= 80))
+        && (!('subjectFocus' in data) || (data.subjectFocus is string && data.subjectFocus.size() <= 80))
+        && data.levelFocus in ['1AM', '2AM', '3AM', '4AM', 'Tous niveaux']
+        && data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 100
+        && data.balanceDueDzd is number && data.balanceDueDzd >= 0 && data.balanceDueDzd <= 10000000
+        && data.totalPaidDzd is number && data.totalPaidDzd >= 0 && data.totalPaidDzd <= 10000000
+        && data.paymentStatus in ['paid', 'pending', 'overdue']
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Invoice
+    function isValidInvoice(data, invId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'correspondentId', 'correspondentName',
+          'documentTitle', 'amountDzd', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'correspondentId', 'correspondentName',
+          'documentId', 'documentTitle', 'amountDzd', 'status',
+          'dueDate', 'aiMessageDraft', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == invId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.correspondentId is string && isValidId(data.correspondentId)
+        && data.correspondentName is string && data.correspondentName.size() >= 1 && data.correspondentName.size() <= 120
+        && (!('documentId' in data) || (data.documentId is string && data.documentId.size() <= 128))
+        && data.documentTitle is string && data.documentTitle.size() >= 1 && data.documentTitle.size() <= 200
+        && data.amountDzd is number && data.amountDzd >= 0 && data.amountDzd <= 10000000
+        && data.status in ['pending', 'paid', 'overdue', 'cancelled']
+        && (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 40))
+        && (!('aiMessageDraft' in data) || (data.aiMessageDraft is string && data.aiMessageDraft.size() <= 4000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // 1. User Profiles (PII Isolated)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwnerUid(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwnerUid(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwnerUid(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'schoolName', 'wilaya', 'defaultSubject', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // 2. Pedagogic Documents
+    match /documents/{docId} {
+      allow get: if isValidId(docId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+      allow create: if isValidId(docId)
+        && isVerifiedUser()
+        && isValidPedagogicDocument(incoming(), docId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(docId)
+        && isVerifiedUser()
+        && existing().ownerId == request.auth.uid
+        && isValidPedagogicDocument(incoming(), docId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'docType', 'subject', 'level', 'language', 'trimester',
+            'handwritingMode', 'paperStyle', 'inkColor', 'contentMarkdown',
+            'svgDiagram', 'priceDzd', 'isPaidTemplate', 'updatedAt'
+          ])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['handwritingMode', 'paperStyle', 'inkColor', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['priceDzd', 'isPaidTemplate', 'updatedAt'])
+        );
+      allow delete: if isValidId(docId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+
+    // 3. Correspondents
+    match /correspondents/{correspondentId} {
+      allow get: if isValidId(correspondentId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+      allow create: if isValidId(correspondentId)
+        && isVerifiedUser()
+        && isValidCorrespondent(incoming(), correspondentId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(correspondentId)
+        && isVerifiedUser()
+        && existing().ownerId == request.auth.uid
+        && isValidCorrespondent(incoming(), correspondentId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'roleType', 'email', 'phone', 'wilaya', 'subjectFocus', 'levelFocus', 'planName', 'notes', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['balanceDueDzd', 'totalPaidDzd', 'paymentStatus', 'updatedAt'])
+        );
+      allow delete: if isValidId(correspondentId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+
+    // 4. Invoices (with Referential Integrity & Terminal State Locking)
+    match /invoices/{invoiceId} {
+      allow get: if isValidId(invoiceId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+      allow create: if isValidId(invoiceId)
+        && isVerifiedUser()
+        && isValidInvoice(incoming(), invoiceId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/correspondents/$(incoming().correspondentId))
+        && get(/databases/$(database)/documents/correspondents/$(incoming().correspondentId)).data.ownerId == request.auth.uid;
+      allow update: if isValidId(invoiceId)
+        && isVerifiedUser()
+        && existing().ownerId == request.auth.uid
+        && !(existing().status in ['paid', 'cancelled'])
+        && isValidInvoice(incoming(), invoiceId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().correspondentId == existing().correspondentId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['aiMessageDraft', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['amountDzd', 'dueDate', 'updatedAt'])
+        );
+      allow delete: if isValidId(invoiceId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+  }
+}
