@@ -81,4 +81,43 @@
     width: 100% !important;
     max-width: 100% !important;
   }
+
+  .print-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  @page flashcards {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  .flashcard-print-area {
+    page: flashcards;
+  }
+
+  .flashcard-a4-page {
+    width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    padding: 5mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform: none !important;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
+  }
+
+  .flashcard-a4-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .flashcard-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

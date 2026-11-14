@@ -32,7 +32,19 @@
         },
         "defaultSubject": {
           "type": "string",
-          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe"]
+          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe", "Histoire-Géographie"]
+        },
+        "licenseCode": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licensePlan": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "licenseExpiresAt": {
+          "type": "string",
+          "maxLength": 40
         },
         "createdAt": {
           "type": "string",
@@ -73,7 +85,7 @@
         },
         "subject": {
           "type": "string",
-          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe"]
+          "enum": ["Anglais", "Français", "Mathématiques", "Sciences Naturelles", "Physique", "Arabe", "Histoire-Géographie"]
         },
         "level": {
           "type": "string",

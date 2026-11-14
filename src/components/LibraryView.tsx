@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BookOpen, Download, ExternalLink, Image as ImageIcon, Search, Trash2 } from 'lucide-react';
+import { BookOpen, Download, ExternalLink, Image as ImageIcon, Lock, Search, Trash2 } from 'lucide-react';
 import { CURATED_ILLUSTRATIONS, SUBJECTS } from '../data/algerianCurriculum';
 import { PedagogicDocument, SubjectType } from '../types';
 import { exportToWordDocx } from '../utils/exportUtils';
@@ -11,6 +11,8 @@ interface LibraryViewProps {
   onLoadInAtelier: (doc: PedagogicDocument) => void;
   onDeleteDocument: (docId: string) => Promise<void>;
   onInsertIllustration: (imagePath: string) => void;
+  isActivated: boolean;
+  onOpenActivation: () => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -20,6 +22,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onLoadInAtelier,
   onDeleteDocument,
   onInsertIllustration,
+  isActivated,
+  onOpenActivation,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState<SubjectType | 'all'>('all');
@@ -140,7 +144,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            if (!isActivated) {
+                              onOpenActivation();
+                              return;
+                            }
                             exportToWordDocx({
                               title: doc.title,
                               subject: doc.subject,
@@ -151,11 +159,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                               contentMarkdown: doc.contentMarkdown,
                               svgDiagram: doc.svgDiagram,
                               handwritingMode: doc.handwritingMode,
-                            })
-                          }
+                            });
+                          }}
                           className="h-8 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-md inline-flex items-center gap-1"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          {isActivated ? (
+                            <Download className="w-3.5 h-3.5" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          )}
                           <span>Word</span>
                         </button>
                         <button

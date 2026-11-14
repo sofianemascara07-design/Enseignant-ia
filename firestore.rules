@@ -34,13 +34,20 @@ service cloud.firestore {
     // Validation Blueprint: UserProfile
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'displayName', 'email', 'schoolName', 'wilaya', 'defaultSubject', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'schoolName', 'wilaya',
+          'defaultSubject', 'licenseCode', 'licensePlan', 'licenseExpiresAt',
+          'createdAt', 'updatedAt'
+        ])
         && data.uid is string && data.uid == userId && isValidId(data.uid)
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
         && (!('schoolName' in data) || (data.schoolName is string && data.schoolName.size() <= 160))
         && (!('wilaya' in data) || (data.wilaya is string && data.wilaya.size() <= 80))
-        && (!('defaultSubject' in data) || (data.defaultSubject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe']))
+        && (!('defaultSubject' in data) || (data.defaultSubject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe', 'Histoire-Géographie']))
+        && (!('licenseCode' in data) || (data.licenseCode is string && data.licenseCode.size() <= 120))
+        && (!('licensePlan' in data) || (data.licensePlan is string && data.licensePlan.size() <= 80))
+        && (!('licenseExpiresAt' in data) || (data.licenseExpiresAt is string && data.licenseExpiresAt.size() <= 40))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -61,7 +68,7 @@ service cloud.firestore {
         && data.ownerId is string && data.ownerId == request.auth.uid && isValidId(data.ownerId)
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
         && data.docType in ['cours', 'fiche', 'examen', 'devoir', 'exercice']
-        && data.subject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe']
+        && data.subject in ['Anglais', 'Français', 'Mathématiques', 'Sciences Naturelles', 'Physique', 'Arabe', 'Histoire-Géographie']
         && data.level in ['1AM', '2AM', '3AM', '4AM']
         && data.language in ['fr', 'ar', 'en']
         && data.trimester in ['T1', 'T2', 'T3', 'BEM']
@@ -145,7 +152,10 @@ service cloud.firestore {
         && incoming().uid == existing().uid
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'schoolName', 'wilaya', 'defaultSubject', 'updatedAt']);
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'schoolName', 'wilaya', 'defaultSubject', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['licenseCode', 'licensePlan', 'licenseExpiresAt', 'updatedAt'])
+        );
       allow delete: if false;
     }
 

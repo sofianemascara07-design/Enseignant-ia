@@ -6,7 +6,9 @@ import {
   Eye,
   FileText,
   Image as ImageIcon,
+  KeyRound,
   Loader2,
+  Lock,
   PenTool,
   Printer,
   Save,
@@ -35,7 +37,7 @@ import {
   TrimesterType,
 } from '../types';
 import { exportToWordDocx, triggerPrintPdf } from '../utils/exportUtils';
-import { DocumentSheet } from './DocumentSheet';
+import { DocumentSheet, SheetHeaderConfig } from './DocumentSheet';
 
 export interface ActiveDraft {
   id?: string;
@@ -59,6 +61,9 @@ interface AtelierViewProps {
   draft: ActiveDraft;
   onUpdateDraft: (updater: (prev: ActiveDraft) => ActiveDraft) => void;
   schoolName: string;
+  onChangeSchoolName: (val: string) => void;
+  headerConfig: SheetHeaderConfig;
+  onChangeHeaderConfig: (updater: (prev: SheetHeaderConfig) => SheetHeaderConfig) => void;
   teacherName: string;
   isAuthenticated: boolean;
   onRequestSignIn: () => void;
@@ -70,25 +75,41 @@ interface AtelierViewProps {
     documentId?: string;
     amountDzd: number;
   }) => Promise<void>;
+  licenseCode: string | null;
+  licensePlan: string | null;
+  isLicensed: boolean;
+  trialsUsed: number;
+  maxTrials: number;
+  onIncrementTrial: () => void;
+  onOpenActivationModal: () => void;
 }
 
 export const AtelierView: React.FC<AtelierViewProps> = ({
   draft,
   onUpdateDraft,
   schoolName,
+  onChangeSchoolName,
+  headerConfig,
+  onChangeHeaderConfig,
   teacherName,
   isAuthenticated,
   onRequestSignIn,
   onSaveDocument,
   correspondents,
   onCreatePaidShare,
+  licenseCode,
+  licensePlan,
+  isLicensed,
+  trialsUsed,
+  maxTrials,
+  onIncrementTrial,
+  onOpenActivationModal,
 }) => {
   const topics = ALGERIAN_CEM_CURRICULUM[draft.subject][draft.level] || [];
   const [selectedTopic, setSelectedTopic] = useState<string>(topics[0]?.title || '');
   const [customInstructions, setCustomInstructions] = useState('');
   const [includeCorrection, setIncludeCorrection] = useState(true);
   const [includeDiagram, setIncludeDiagram] = useState(true);
-  const [durationMinutes, setDurationMinutes] = useState(60);
   const [diagramPrompt, setDiagramPrompt] = useState('');
 
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
@@ -159,6 +180,15 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
     setSelectedTopic(nextTopicTitle);
     setHasGeneratedCustomContent(false);
     setErrorMsg(null);
+    onChangeHeaderConfig((prev) => ({
+      ...prev,
+      closingPhrase:
+        nextLang === 'ar'
+          ? 'انتهى — بالتوفيق'
+          : nextLang === 'en'
+            ? 'End of Paper — Good Luck'
+            : 'Fin du sujet — Bon courage',
+    }));
     applyStarterIfNeeded(
       newSubject,
       draft.level,
@@ -199,12 +229,20 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
       );
     }
     if (!res.ok) {
+      if (res.status === 402 || data.locked) {
+        onOpenActivationModal();
+      }
       throw new Error(String(data.error || `Erreur serveur (${res.status}).`));
     }
     return data;
   };
 
   const handleGenerateDocument = async () => {
+    if (!isLicensed && trialsUsed >= maxTrials) {
+      onOpenActivationModal();
+      return;
+    }
+
     setErrorMsg(null);
     setIsGeneratingDoc(true);
     try {
@@ -212,7 +250,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
       const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
       const res = await fetch(`${apiBase}/api/ai/generate-document`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(licenseCode ? { 'X-Activation-Code': licenseCode } : {}),
+          'X-Trial-Count': String(trialsUsed),
+        },
         body: JSON.stringify({
           subject: draft.subject,
           level: draft.level,
@@ -223,7 +265,8 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
           customInstructions,
           includeCorrection,
           includeDiagram,
-          durationMinutes,
+          durationMinutes: headerConfig.durationMinutes,
+          answerSpaceMode: headerConfig.answerSpaceMode,
         }),
       });
       const data = await parseApiResponse(res);
@@ -233,6 +276,9 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
         contentMarkdown: String(data.contentMarkdown || prev.contentMarkdown),
         svgDiagram: String(data.svgDiagram || ''),
       }));
+      if (!isLicensed) {
+        onIncrementTrial();
+      }
       setHasGeneratedCustomContent(true);
       setIsEditing(false);
     } catch (err) {
@@ -243,6 +289,10 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
   };
 
   const handleGenerateDiagram = async () => {
+    if (!isLicensed && trialsUsed >= maxTrials) {
+      onOpenActivationModal();
+      return;
+    }
     const desc = diagramPrompt.trim() || selectedTopic || draft.title;
     if (!desc) return;
     setErrorMsg(null);
@@ -251,7 +301,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
       const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
       const res = await fetch(`${apiBase}/api/ai/generate-diagram`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(licenseCode ? { 'X-Activation-Code': licenseCode } : {}),
+          'X-Trial-Count': String(trialsUsed),
+        },
         body: JSON.stringify({
           subject: draft.subject,
           level: draft.level,
@@ -285,6 +339,10 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
   };
 
   const handleDownloadWord = async () => {
+    if (!isLicensed) {
+      onOpenActivationModal();
+      return;
+    }
     setIsExportingWord(true);
     setErrorMsg(null);
     try {
@@ -301,12 +359,21 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
         svgDiagram: draft.svgDiagram,
         attachedImageUrl: draft.attachedImageUrl,
         handwritingMode: draft.handwritingMode,
+        headerConfig,
       });
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erreur export Word.');
     } finally {
       setIsExportingWord(false);
     }
+  };
+
+  const handlePrintPdf = () => {
+    if (!isLicensed) {
+      onOpenActivationModal();
+      return;
+    }
+    triggerPrintPdf();
   };
 
   const handleSave = async () => {
@@ -362,21 +429,45 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
     }
   };
 
+  const trialsRemaining = Math.max(0, maxTrials - trialsUsed);
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Pedagogical Control Panel */}
-        <aside className="no-print lg:col-span-4 space-y-6 bg-white border border-slate-200 rounded-xl p-6">
+        <aside className="no-print lg:col-span-4 space-y-5 bg-white border border-slate-200 rounded-xl p-5">
+          {/* License / Trial Banner */}
+          <div className={`p-3.5 rounded-lg border text-xs ${isLicensed ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/80 border-amber-200 text-amber-950'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-semibold flex items-center gap-1.5">
+                {isLicensed ? <KeyRound className="w-3.5 h-3.5 text-emerald-700" /> : <Lock className="w-3.5 h-3.5 text-amber-700" />}
+                <span>{isLicensed ? `Licence Pro active (${licensePlan || 'PRO'})` : `Mode Découverte : ${trialsRemaining}/${maxTrials} essais IA`}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenActivationModal}
+                className="font-semibold underline hover:opacity-80 whitespace-nowrap"
+              >
+                {isLicensed ? 'Détails' : 'Activer CCP'}
+              </button>
+            </div>
+            {!isLicensed && (
+              <p className="mt-1 text-[11px] opacity-85">
+                L’export Word (.docx), l’impression PDF et la génération illimitée requièrent un code d’activation via CCP / WhatsApp 05 57 76 78 04.
+              </p>
+            )}
+          </div>
+
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">01. Paramètres du programme CEM</h2>
-            <p className="text-xs text-slate-500 mt-1">
+            <h2 className="text-base font-semibold text-slate-900">01. Paramètres du programme CEM</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
               Curriculum officiel algérien (2e génération · 1AM à 4AM)
             </p>
           </div>
 
           {/* Level Selector */}
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-2">Niveau (Moyen)</label>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">Niveau (Moyen)</label>
             <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-lg">
               {LEVELS.map((lvl) => (
                 <button
@@ -514,23 +605,84 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
             />
           </div>
 
-          {/* Pedagogical Options */}
-          <div className="space-y-2.5 pt-2 border-t border-slate-100">
-            <div className="flex items-center justify-between text-xs text-slate-700">
-              <span>Durée prévue</span>
-              <div className="flex items-center gap-2">
+          {/* Official Header Fields (الترويسة) */}
+          <div className="pt-3 border-t border-slate-200 space-y-2.5">
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+              الترويسة الرسمية · En-tête CEM
+            </h3>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[11px] text-slate-600 mb-1">Direction (مديرية التربية)</label>
+                <input
+                  type="text"
+                  value={headerConfig.wilayaDirectorate}
+                  onChange={(e) =>
+                    onChangeHeaderConfig((p) => ({ ...p, wilayaDirectorate: e.target.value }))
+                  }
+                  className="w-full h-9 px-2.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-600 mb-1">Année scolaire</label>
+                <input
+                  type="text"
+                  value={headerConfig.schoolYear}
+                  onChange={(e) =>
+                    onChangeHeaderConfig((p) => ({ ...p, schoolYear: e.target.value }))
+                  }
+                  className="w-full h-9 px-2.5 text-xs font-mono-tabular bg-white border border-slate-200 rounded-lg text-slate-900"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="col-span-2">
+                <label className="block text-[11px] text-slate-600 mb-1">Établissement (المؤسسة)</label>
+                <input
+                  type="text"
+                  value={schoolName}
+                  onChange={(e) => onChangeSchoolName(e.target.value)}
+                  className="w-full h-9 px-2.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-600 mb-1">Durée (min)</label>
                 <input
                   type="number"
                   min={15}
                   max={180}
                   step={15}
-                  value={durationMinutes}
-                  onChange={(e) => setDurationMinutes(Number(e.target.value) || 60)}
-                  className="w-20 h-8 px-2 text-right font-mono-tabular border border-slate-200 rounded-md"
+                  value={headerConfig.durationMinutes}
+                  onChange={(e) =>
+                    onChangeHeaderConfig((p) => ({
+                      ...p,
+                      durationMinutes: Number(e.target.value) || 60,
+                    }))
+                  }
+                  className="w-full h-9 px-2.5 text-xs font-mono-tabular bg-white border border-slate-200 rounded-lg text-slate-900"
                 />
-                <span className="text-slate-500">min</span>
               </div>
             </div>
+          </div>
+
+          {/* Paper Options (خيارات الورقة) */}
+          <div className="pt-3 border-t border-slate-200 space-y-2.5">
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+              خيارات الورقة · Options de la feuille
+            </h3>
+
+            <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={headerConfig.showStudentBox}
+                onChange={(e) =>
+                  onChangeHeaderConfig((p) => ({ ...p, showStudentBox: e.target.checked }))
+                }
+                className="w-4 h-4 accent-emerald-600 rounded"
+              />
+              <span>Case Nom, Prénom & Classe (خانة الاسم واللقب)</span>
+            </label>
+
             <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -538,8 +690,38 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
                 onChange={(e) => setIncludeCorrection(e.target.checked)}
                 className="w-4 h-4 accent-emerald-600 rounded"
               />
-              <span>Inclure corrigé type & barème détaillé</span>
+              <span>Inclure Corrigé type & Barème (/20)</span>
             </label>
+
+            <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={headerConfig.separateCorrectionPage}
+                onChange={(e) =>
+                  onChangeHeaderConfig((p) => ({ ...p, separateCorrectionPage: e.target.checked }))
+                }
+                className="w-4 h-4 accent-emerald-600 rounded"
+              />
+              <span>Page séparée pour le Corrigé (صفحة التصحيح النموذجي)</span>
+            </label>
+
+            <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50/80 text-xs text-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={headerConfig.answerSpaceMode}
+                onChange={(e) =>
+                  onChangeHeaderConfig((p) => ({ ...p, answerSpaceMode: e.target.checked }))
+                }
+                className="w-4 h-4 accent-emerald-600 rounded mt-0.5"
+              />
+              <div>
+                <div className="font-semibold">Feuille Questions & Réponses (ورقة أسئلة وإجابة)</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Ajoute des lignes pointillées sous chaque question pour répondre sur la feuille.
+                </div>
+              </div>
+            </label>
+
             <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
               <input
                 type="checkbox"
@@ -549,6 +731,20 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               />
               <span>Générer un schéma vectoriel intégré</span>
             </label>
+
+            <div>
+              <label className="block text-[11px] text-slate-600 mb-1">
+                Formule de clôture (عبارة الختام)
+              </label>
+              <input
+                type="text"
+                value={headerConfig.closingPhrase}
+                onChange={(e) =>
+                  onChangeHeaderConfig((p) => ({ ...p, closingPhrase: e.target.value }))
+                }
+                className="w-full h-9 px-2.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-900"
+              />
+            </div>
           </div>
 
           <div>
@@ -559,7 +755,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               rows={2}
               value={customInstructions}
               onChange={(e) => setCustomInstructions(e.target.value)}
-              placeholder="Ex: Insister sur les exercices de calcul littéral, niveau moyen..."
+              placeholder="Ex: QCM à cocher, tableau de données, niveau BEM..."
               className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
             />
           </div>
@@ -574,6 +770,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Rédaction IA en cours...</span>
+              </>
+            ) : !isLicensed && trialsUsed >= maxTrials ? (
+              <>
+                <Lock className="w-4 h-4" />
+                <span>Débloquer IA Pro (CCP / WhatsApp)</span>
               </>
             ) : (
               <>
@@ -590,16 +791,16 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
           )}
 
           {/* Handwriting & Paper Style Studio */}
-          <div className="pt-5 border-t border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <PenTool className="w-4 h-4 text-slate-600" />
-                <span>02. Écriture à la main & Papier</span>
-              </h3>
-            </div>
+          <div className="pt-4 border-t border-slate-200 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <PenTool className="w-4 h-4 text-slate-600" />
+              <span>02. Écriture à la main & Papier</span>
+            </h3>
 
             <div>
-              <label className="block text-xs text-slate-600 mb-1.5">Style d’écriture ({draft.language.toUpperCase()})</label>
+              <label className="block text-xs text-slate-600 mb-1.5">
+                Style d’écriture ({draft.language.toUpperCase()})
+              </label>
               <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-lg">
                 <button
                   type="button"
@@ -671,7 +872,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
           </div>
 
           {/* Images, Photos & AI Vector Diagram */}
-          <div className="pt-5 border-t border-slate-200 space-y-3">
+          <div className="pt-4 border-t border-slate-200 space-y-3">
             <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <ImageIcon className="w-4 h-4 text-slate-600" />
               <span>03. Images, Photos & Schémas</span>
@@ -682,7 +883,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
                 type="text"
                 value={diagramPrompt}
                 onChange={(e) => setDiagramPrompt(e.target.value)}
-                placeholder="Décrire un schéma (ex: triangle Thalès, circuit série...)"
+                placeholder="Décrire un schéma (triangle Thalès, carte, circuit...)"
                 className="flex-1 h-9 px-3 text-xs bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600"
               />
               <button
@@ -741,12 +942,6 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               )}
             </div>
           </div>
-
-          {errorMsg && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
-              {errorMsg}
-            </div>
-          )}
         </aside>
 
         {/* Right A4 Document Toolbar & Live Sheet */}
@@ -777,10 +972,10 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
 
               <button
                 type="button"
-                onClick={triggerPrintPdf}
+                onClick={handlePrintPdf}
                 className="h-9 px-3 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg flex items-center gap-1.5 whitespace-nowrap"
               >
-                <Printer className="w-3.5 h-3.5" />
+                {!isLicensed ? <Lock className="w-3.5 h-3.5 text-amber-600" /> : <Printer className="w-3.5 h-3.5" />}
                 <span>Imprimer / PDF</span>
               </button>
 
@@ -792,6 +987,8 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               >
                 {isExportingWord ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : !isLicensed ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-600" />
                 ) : (
                   <Download className="w-3.5 h-3.5" />
                 )}
@@ -840,6 +1037,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
             attachedImageUrl={draft.attachedImageUrl}
             schoolName={schoolName}
             teacherName={teacherName}
+            headerConfig={headerConfig}
             isEditing={isEditing}
             onChangeTitle={(title) => onUpdateDraft((p) => ({ ...p, title }))}
             onChangeMarkdown={(contentMarkdown) =>

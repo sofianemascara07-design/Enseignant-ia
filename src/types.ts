@@ -4,7 +4,8 @@ export type SubjectType =
   | 'Mathématiques'
   | 'Sciences Naturelles'
   | 'Physique'
-  | 'Arabe';
+  | 'Arabe'
+  | 'Histoire-Géographie';
 
 export type LevelType = '1AM' | '2AM' | '3AM' | '4AM';
 
@@ -27,6 +28,9 @@ export interface UserProfile {
   schoolName?: string;
   wilaya?: string;
   defaultSubject?: SubjectType;
+  licenseCode?: string;
+  licensePlan?: string;
+  licenseExpiresAt?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

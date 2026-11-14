@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   CreditCard,
+  KeyRound,
   Loader2,
   MessageSquare,
   Plus,
@@ -23,6 +24,7 @@ import {
 interface CorrespondentsViewProps {
   correspondents: Correspondent[];
   invoices: Invoice[];
+  userEmail?: string;
   isAuthenticated: boolean;
   onRequestSignIn: () => void;
   onAddCorrespondent: (data: Omit<Correspondent, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>) => Promise<void>;
@@ -47,6 +49,7 @@ const PLAN_PRESETS = [
 export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
   correspondents,
   invoices,
+  userEmail,
   isAuthenticated,
   onRequestSignIn,
   onAddCorrespondent,
@@ -55,9 +58,18 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
   onMarkInvoicePaid,
   onSaveInvoiceDraftMessage,
 }) => {
-  const [activeTab, setActiveTab] = useState<'correspondents' | 'invoices'>('correspondents');
+  const [activeTab, setActiveTab] = useState<'correspondents' | 'invoices' | 'licenses'>('correspondents');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+
+  // Admin license code generator state
+  const [adminPin, setAdminPin] = useState('');
+  const [genPlanType, setGenPlanType] = useState<'MENSUEL' | 'TRIMESTRE' | 'ANNUEL'>('MENSUEL');
+  const [genClientPhone, setGenClientPhone] = useState('');
+  const [genClientName, setGenClientName] = useState('');
+  const [genLoading, setGenLoading] = useState(false);
+  const [generatedLicense, setGeneratedLicense] = useState<{ code: string; plan: string; expiresAt: string } | null>(null);
+  const [copiedLicense, setCopiedLicense] = useState(false);
 
   // Add Correspondent form state
   const [fullName, setFullName] = useState('');
@@ -206,6 +218,49 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
     }
   };
 
+  const handleGenerateLicenseCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGenLoading(true);
+    setErrorMsg(null);
+    setGeneratedLicense(null);
+    try {
+      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const res = await fetch(`${apiBase}/api/license/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: userEmail || '',
+          adminPin,
+          planType: genPlanType,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Accès refusé pour la génération du code.');
+      }
+      setGeneratedLicense(data);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erreur génération code.');
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
+  const handleCopyLicenseMessage = async () => {
+    if (!generatedLicense) return;
+    const msg = `Bonjour${genClientName ? ` ${genClientName}` : ''},\nVoici votre code d'activation Madrassati CEM (${generatedLicense.plan}) valable jusqu'au ${generatedLicense.expiresAt} :\n${generatedLicense.code}\n\nMerci pour votre paiement CCP / BaridiMob.`;
+    await navigator.clipboard.writeText(msg);
+    setCopiedLicense(true);
+    setTimeout(() => setCopiedLicense(false), 2000);
+  };
+
+  const normalizedClientWa = genClientPhone.replace(/[^0-9]/g, '').replace(/^0/, '213');
+  const waSendUrl = generatedLicense
+    ? `https://wa.me/${normalizedClientWa || '213557767804'}?text=${encodeURIComponent(
+        `Bonjour${genClientName ? ` ${genClientName}` : ''}, voici votre code d'activation Madrassati CEM (${generatedLicense.plan}, valable jusqu'au ${generatedLicense.expiresAt}) : ${generatedLicense.code}`
+      )}`
+    : '#';
+
   const handleCopyAiMessage = async () => {
     const full = aiSubjectLine ? `${aiSubjectLine}\n\n${aiMessageBody}` : aiMessageBody;
     await navigator.clipboard.writeText(full);
@@ -245,7 +300,7 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
             Gestion payante & Correspondants
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Suivi des abonnements, factures DZD, partages de sujets et assistant de relance IA.
+            Suivi des abonnements, factures DZD, codes d’activation CCP/WhatsApp et assistant de relance IA.
           </p>
         </div>
 
@@ -309,7 +364,7 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
       )}
 
       {/* Segmented View Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg w-fit">
+      <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg w-fit">
         <button
           type="button"
           onClick={() => setActiveTab('correspondents')}
@@ -332,10 +387,125 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
         >
           Factures & Partages payants ({invoices.length})
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('licenses')}
+          className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'licenses'
+              ? 'bg-white text-emerald-700 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <KeyRound className="w-3.5 h-3.5" />
+          <span>Codes d’activation CCP</span>
+        </button>
       </div>
 
-      {/* Correspondents Table */}
-      {activeTab === 'correspondents' ? (
+      {/* Tab Content */}
+      {activeTab === 'licenses' ? (
+        <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-2xl space-y-5">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-emerald-700" />
+              <span>Générateur de codes d’activation (Paiements CCP & WhatsApp)</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Lorsqu’un client envoie son reçu de paiement CCP / BaridiMob sur WhatsApp (05 57 76 78 04), générez ici son code d’activation signé.
+            </p>
+          </div>
+
+          <form onSubmit={handleGenerateLicenseCode} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Formule payée</label>
+                <select
+                  value={genPlanType}
+                  onChange={(e) => setGenPlanType(e.target.value as 'MENSUEL' | 'TRIMESTRE' | 'ANNUEL')}
+                  className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="MENSUEL">Mensuel — 30 jours (1 500 DZD)</option>
+                  <option value="TRIMESTRE">Trimestre — 90 jours (3 500 DZD)</option>
+                  <option value="ANNUEL">Annuel — 365 jours (8 000 DZD)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  PIN Admin {userEmail === 'sofianemascara07@gmail.com' ? '(Admin vérifié)' : ''}
+                </label>
+                <input
+                  type="password"
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  placeholder={userEmail === 'sofianemascara07@gmail.com' ? 'Optionnel (compte propriétaire)' : 'Code PIN administrateur'}
+                  className="w-full h-10 px-3 text-sm font-mono-tabular border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Nom du client (optionnel)</label>
+                <input
+                  type="text"
+                  value={genClientName}
+                  onChange={(e) => setGenClientName(e.target.value)}
+                  placeholder="Ex: Prof. Amine"
+                  className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">WhatsApp client (optionnel)</label>
+                <input
+                  type="text"
+                  value={genClientPhone}
+                  onChange={(e) => setGenClientPhone(e.target.value)}
+                  placeholder="Ex: 0550123456"
+                  className="w-full h-10 px-3 text-sm font-mono-tabular border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={genLoading}
+              className="h-10 px-5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-2"
+            >
+              {genLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+              <span>Générer le code d’activation</span>
+            </button>
+          </form>
+
+          {generatedLicense && (
+            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-3">
+              <div className="text-xs font-semibold text-emerald-900">
+                Code prêt · Formule {generatedLicense.plan} (Expire le {generatedLicense.expiresAt})
+              </div>
+              <div className="p-3 bg-white border border-emerald-300 rounded-lg font-mono-tabular text-base font-bold text-slate-900 tracking-wider text-center select-all">
+                {generatedLicense.code}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyLicenseMessage}
+                  className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg inline-flex items-center gap-1.5"
+                >
+                  {copiedLicense ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLicense ? 'Message copié' : 'Copier code + message'}</span>
+                </button>
+                <a
+                  href={waSendUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-9 px-4 bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Envoyer via WhatsApp</span>
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'correspondents' ? (
         correspondents.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-3">
             <p className="text-sm font-medium text-slate-900">Aucun correspondant enregistré</p>
