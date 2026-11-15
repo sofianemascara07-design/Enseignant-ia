@@ -217,7 +217,13 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
   };
 
   const parseApiResponse = async (res: Response) => {
+    const contentType = res.headers.get('content-type') || '';
     const raw = await res.text();
+    if (contentType.includes('text/html') || raw.trimStart().startsWith('<!doctype') || raw.trimStart().startsWith('<html')) {
+      throw new Error(
+        'Le serveur IA backend est requis sur cette URL. Utilisez le lien direct complet (Partager) tant que le backend Render n’est pas encore déployé.'
+      );
+    }
     let data: Record<string, unknown> = {};
     try {
       data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
@@ -570,6 +576,12 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
               </select>
             </div>
           </div>
+
+          {draft.docType === 'fiche' && (
+            <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-[11.5px] text-emerald-950 leading-relaxed">
+              <strong>Mode Fiche Pédagogique Boosté (مذكرة بيداغوجية) :</strong> génère automatiquement la Fiche Synoptique, Compétences & Valeurs, Situation de départ, Tableau complet du Déroulement, Trace écrite et Évaluation.
+            </div>
+          )}
 
           {/* Official Curriculum Topic Picker */}
           <div>

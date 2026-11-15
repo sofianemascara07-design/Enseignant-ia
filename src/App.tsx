@@ -31,6 +31,7 @@ import { CurriculumView } from './components/CurriculumView';
 import { SheetHeaderConfig } from './components/DocumentSheet';
 import { FlashcardsView } from './components/FlashcardsView';
 import { LibraryView } from './components/LibraryView';
+import { OfflineIndicator, PWAInstallAndShareControl } from './components/PWAInstallButton';
 import { buildSubjectStarterContent } from './data/algerianCurriculum';
 import {
   auth,
@@ -650,8 +651,9 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Zone 3: 1 Primary Action */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Zone 3: Install/Share + 1 Primary Action */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <PWAInstallAndShareControl />
             {user ? (
               <button
                 type="button"
@@ -922,6 +924,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <OfflineIndicator />
     </div>
   );
 }

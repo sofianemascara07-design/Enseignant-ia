@@ -159,6 +159,9 @@ function getGeminiClient() {
   });
 }
 
+const PRIMARY_TEXT_MODEL = 'gemini-3.1-flash-lite';
+const FALLBACK_TEXT_MODEL = 'gemini-3.5-flash';
+
 function safeParseJson<T>(raw: string | undefined): T {
   const cleaned = (raw ?? '{}')
     .trim()
@@ -166,19 +169,56 @@ function safeParseJson<T>(raw: string | undefined): T {
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1)) as T;
+    }
+    throw new Error('Réponse IA malformée. Veuillez relancer la génération.');
+  }
 }
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('503') || msg.includes('500') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT')) {
-      await new Promise((r) => setTimeout(r, 600));
-      return await fn();
+async function generateWithBoost(
+  ai: GoogleGenAI,
+  params: {
+    contents: string;
+    systemInstruction?: string;
+    responseSchema: Record<string, unknown>;
+    thinkingLevel?: ThinkingLevel;
+  }
+) {
+  const callModel = async (model: string, thinkingLevel: ThinkingLevel) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 32000);
+    try {
+      return await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config: {
+          abortSignal: controller.signal,
+          thinkingConfig: { thinkingLevel },
+          ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
+          responseMimeType: 'application/json',
+          responseSchema: params.responseSchema,
+        },
+      });
+    } finally {
+      clearTimeout(timer);
     }
-    throw err;
+  };
+
+  try {
+    return await callModel(PRIMARY_TEXT_MODEL, params.thinkingLevel ?? ThinkingLevel.LOW);
+  } catch (primaryErr) {
+    const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    if (msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID') || msg.includes('403')) {
+      throw primaryErr;
+    }
+    console.warn(`Primary model ${PRIMARY_TEXT_MODEL} issue (${msg}), switching to ${FALLBACK_TEXT_MODEL}...`);
+    return await callModel(FALLBACK_TEXT_MODEL, ThinkingLevel.LOW);
   }
 }
 
@@ -262,28 +302,134 @@ app.post('/api/ai/generate-document', async (req, res) => {
     const languageLabel =
       language === 'ar' ? 'Arabe (العربية الفصحى المدرسية)' : language === 'en' ? 'Anglais (English)' : 'Français';
 
-    const docTypeInstructions: Record<string, string> = {
-      cours:
-        'Un cours complet structuré selon le programme officiel algérien (2e génération) : الكفاءة القاعدية / Objectif d’apprentissage, الوضعية الانطلاقية / Situation de départ, البناء المعرفي والشرح المفصل مع أمثلة محلولة, القاعدة / À retenir, وتطبيقات مباشرة.',
-      fiche:
-        'Une Fiche Pédagogique officielle algérienne (مذكرة بيداغوجية CEM) comprenant un tableau synoptique (المستوى، الميدان، المقطع التعلمي، الكفاءة الختامية، مركبات الكفاءة، الوسائل، المدة), الوضعية المشكلة الانطلاقية، وجدول سير التعلمات (الوضعية الانطلاقية، بناء التعلمات، إرساء الموارد، الاستثمار والتقويم).',
-      examen:
-        'Un Sujet d’Examen officiel trimestriel (اختبار الفصل / BEM) noté sur 20 points : التمرين الأول (أسئلة اختيار من متعدد بعلامة ☐ + جداول منظمة + تطبيقات، 06 نقاط)، التمرين الثاني (06 نقاط)، والوضعية الإدماجية (08 نقاط) مهيكلة بـ: السياق، السند 1 (وثيقة أو جدول معطيات)، السند 2، والتعليمات المرقمة مع تنقيط كل تعليمة.',
-      devoir:
-        'Un Devoir surveillé (فرض محروس) noté sur 20 points conforme au CEM algérien : التمرين الأول (يتضمن أسئلة اختيار من متعدد بعلامة ☐ وجدول إكمال أو مقارنة، 06 نقاط)، التمرين الثاني (06 نقاط)، ووضعية إدماجية (08 نقاط) تتضمن السياق + السند 1 + التعليمات المرقمة.',
-      exercice:
-        'Une Série d’exercices gradués (سلسلة تمارين محلولة) par difficulté : التمرين 1 (استرجاع المعارف واختيار من متعدد ☐)، التمرين 2 (تطبيق وتوظيف)، التمرين 3 (وضعية مشكلة مركبة من نمط BEM).',
-    };
+    let prompt = '';
+    let systemInstruction = '';
 
-    const answerSpaceRule = answerSpaceMode
-      ? `\n5. وضع "ورقة أسئلة وإجابة" مُفعّل : أضف أسطر إجابة منقطة (مثل: ................................................................................) مباشرة تحت كل سؤال أو تعليمة حتى يتمكن التلميذ من الإجابة على نفس الورقة.`
-      : '';
+    if (docType === 'fiche') {
+      if (language === 'fr') {
+        systemInstruction =
+          'Tu es un Inspecteur de l’Éducation Nationale (IEN) et professeur formateur expert du Cycle Moyen algérien (CEM, programmes 2e génération). Tu rédiges des Fiches Pédagogiques complètes, rigoureuses, directement exploitables en classe et prêtes à imprimer.';
+        prompt = `Rédige une FICHE PÉDAGOGIQUE OFFICIELLE CEM complète et détaillée, rédigée 100% en **Français**, selon le programme algérien (2e génération) :
+- Matière : ${subject}
+- Niveau : ${level} (Cycle Moyen algérien)
+- Trimestre : ${trimester || 'T1'}
+- Intitulé de la séance / Séquence : ${topic}
+- Durée : ${durationMinutes || 60} minutes
+- Consignes spécifiques : ${customInstructions || 'Aucune'}
+${includeDiagram ? '- Si un schéma simple ou tableau conceptuel SVG aide la séance, génère un svgDiagram propre (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 260" width="600" height="260">...</svg>, fond blanc), sinon laisse "".' : '- Laisse svgDiagram vide "".'}
 
-    const correctionRule = includeCorrection
-      ? `\n6. بما أن التصحيح النموذجي مطلوب: اكتب بعد نهاية أسئلة التلميذ السطر التالي بالضبط بمفرده:\n[[CORRECTION_PAGE]]\nثم أضف قسم "## التصحيح النموذجي وسلّم التنقيط" (أو "## Corrigé type et barème détaillé" بالفرنسية / "## Model Answer & Marking Scale" بالإنجليزية) يتضمن حلاً كاملاً خطوة بخطوة وجدول سلّم تنقيط Markdown مفصل مجموع نقاطه 20/20.`
-      : '';
+Structure OBLIGATOIRE de contentMarkdown :
+1. **## 1. Fiche Synoptique** : Tableau Markdown clair (Projet / Domaine | Séquence | Niveau | Séance / Activité | Durée | Supports didactiques).
+2. **## 2. Compétence Terminale, Composantes & Objectifs** : Liste précise des objectifs d'apprentissage, valeurs et compétences transversales.
+3. **## 3. Prérequis & Situation de départ** : Mise en train courte + situation-problème / texte ou support déclencheur + questions d'observation.
+4. **## 4. Déroulement de la séance** : Grand tableau Markdown structuré avec les colonnes :
+   | Phase | Durée | Activités de l'enseignant & Consignes | Activités attendues de l'élève | Évaluation / Modalités |
+   Couvrant obligatoirement : Éveil de l'intérêt / Rappel, Observation & Analyse, Structuration ("Je retiens"), et Application / Réinvestissement.
+5. **## 5. Trace écrite (À recopier sur le cahier)** : Règle, synthèse et exemples clairs prêts pour le tableau.
+6. **## 6. Exercice d'évaluation formative** : 1 exercice concret pour vérifier l'acquisition.${
+          answerSpaceMode
+            ? '\n- Ajoute des lignes pointillées (................................................................................) sous les questions de l’exercice pour répondre directement sur la feuille.'
+            : ''
+        }${
+          includeCorrection
+            ? '\n7. À la fin, ajoute une ligne contenant exactement :\n[[CORRECTION_PAGE]]\nPuis **## Corrigé type et Grille d’évaluation de la séance** avec les réponses détaillées et les critères d’observation.'
+            : ''
+        }
 
-    const prompt = `أنت مفتش بيداغوجي وأستاذ مكون خبير في التعليم المتوسط الجزائري (CEM - وزارة التربية الوطنية، مناهج الجيل الثاني الرسمية).
+Règles strictes :
+- N’ajoute pas d’en-tête administratif (République Algérienne / Direction) dans contentMarkdown (déjà généré par l’application).
+- N’utilise JAMAIS &nbsp; ni de balises HTML.`;
+      } else if (language === 'en') {
+        systemInstruction =
+          'You are a Senior Algerian Middle School (CEM) Inspector and Teacher Trainer specializing in the 2nd Generation Competency-Based Curriculum (PDP, PPU, PIASP lesson frameworks). You write clear, practical, print-ready Lesson Plans.';
+        prompt = `Create a complete, authentic ALGERIAN MIDDLE SCHOOL (CEM) LESSON PLAN (Fiche Pédagogique) written 100% in **English**:
+- Subject: ${subject}
+- Level: ${level} (Algerian Middle School)
+- Term: ${trimester || 'T1'}
+- Sequence / Lesson Topic: ${topic}
+- Timing: ${durationMinutes || 60} minutes
+- Teacher's specific instructions: ${customInstructions || 'None'}
+${includeDiagram ? '- If a simple SVG visual diagram or timeline enhances the lesson, include a clean white-background svgDiagram (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 260" width="600" height="260">...</svg>), otherwise set svgDiagram to "".' : '- Set svgDiagram to "".'}
+
+MANDATORY structure for contentMarkdown:
+1. **## 1. Synoptic Lesson Header**: Markdown table (Level | Sequence | Lesson Focus | Framework (PDP/PPU/PIASP) | Duration | Visual Aids / Materials).
+2. **## 2. Learning Objectives, Target Competency & Core Values**: Specify Interact / Interpret / Produce, target language structure/pronunciation, and cross-curricular competencies.
+3. **## 3. Anticipated Problems & Solutions**: 2 concise practical classroom tips.
+4. **## 4. Lesson Procedure**: Structured Markdown table with columns:
+   | Stage & Timing | Procedure & Teacher's Role | Learners' Tasks | Interaction | Competency & VAKT |
+   Covering: Warm-up, Presentation / Pre-task, Isolation-Analysis-Stating the Rule (or During-task), Practice & Use / Post-task.
+5. **## 5. Board Plan & Copybook Summary**: Crisp rule box + model sentences for pupils' copybooks.
+6. **## 6. Formative Assessment Task**: A ready-to-use mini task (MCQ with ☐ or gap-fill).${
+          answerSpaceMode
+            ? '\n- Add dotted answer lines (................................................................................) under the assessment questions.'
+            : ''
+        }${
+          includeCorrection
+            ? '\n7. At the end, insert a line containing ONLY:\n[[CORRECTION_PAGE]]\nFollowed by **## Answer Key & Lesson Evaluation Rubric** with full solutions and assessment indicators.'
+            : ''
+        }
+
+Strict rules:
+- Do NOT include administrative headers (Republic / Ministry / Name box) inside contentMarkdown.
+- NEVER use &nbsp; or raw HTML tags.`;
+      } else {
+        systemInstruction =
+          'أنت مفتش التربية الوطنية وأستاذ مكون خبير في الطور المتوسط الجزائري (CEM - مناهج الجيل الثاني). تعدّ مذكرات بيداغوجية رسمية متكاملة وعملية جاهزة للتطبيق في القسم والطباعة.';
+        prompt = `أنشئ **مذكرة بيداغوجية نموذجية متكاملة (Fiche Pédagogique CEM)** محررة 100% باللغة **العربية الفصحى المدرسية** وفق مناهج الجيل الثاني لوزارة التربية الوطنية الجزائرية:
+- المادة : ${subject}
+- المستوى : ${level} (التعليم المتوسط)
+- الفصل : ${trimester || 'T1'}
+- عنوان المقطع / الوحدة التعلمية : ${topic}
+- المدة الزمنية : ${durationMinutes || 60} دقيقة
+- توجيهات إضافية : ${customInstructions || 'لا توجد'}
+${includeDiagram ? '- إذا كان الدرس يتطلب شكلاً هندسياً أو مخططاً توضيحياً بسيطاً أنشئ svgDiagram صالحاً (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 260" width="600" height="260">...</svg> بخلفية بيضاء)، وإلا اتركه فارغاً "".' : '- اترك svgDiagram فارغاً "".'}
+
+الهيكلة الإلزامية لـ contentMarkdown :
+1. **## 1. البطاقة التقنية للمذكرة** : جدول Markdown منظم يضم (الميدان | المقطع التعلمي | موضوع الدرس | المستوى | المدة | الوسائل البيداغوجية والمراجع).
+2. **## 2. الكفاءة الختامية، مركبات الكفاءة والقيم المستهدفة** : صياغة دقيقة وفق الوثيقة المرافقة للمنهاج (مع الكفاءات العرضية).
+3. **## 3. المكتسبات القبلية والوضعية المشكلة الانطلاقية** : تذكير موجز + وضعية تعلمية محفزة وأسئلة التقصي.
+4. **## 4. جدول سير التعلمات (السيرورة المنهجية للدرس)** : جدول Markdown شامل بالأعمدة التالية :
+   | المرحلة | المدة | نشاط الأستاذ والسير المنهجي | نشاط التلميذ المتوقع | مؤشرات التقويم |
+   يغطي إلزامياً: مرحلة الانطلاق (التقويم التشخيصي)، مرحلة بناء التعلمات والبحث، مرحلة الحوصلة وإرساء الموارد، ومرحلة الاستثمار والتقويم.
+5. **## 5. الأثر الكتابي للتلميذ (الملخص على الكراس)** : ملخص منظم، تعاريف/قوانين/تواريخ معلمية أو أمثلة محلولة جاهزة للنقل على السبورة.
+6. **## 6. تمرين تقويمي ختامي** : نشاط تطبيقي سريع للتأكد من استيعاب التلاميذ (يتضمن خيارات ☐ أو جدول إكمال).${
+          answerSpaceMode
+            ? '\n- أضف أسطر إجابة منقطة (................................................................................) تحت أسئلة التمرين التقويمي.'
+            : ''
+        }${
+          includeCorrection
+            ? '\n7. في نهاية الوثيقة، اكتب السطر التالي بمفرده:\n[[CORRECTION_PAGE]]\nثم أضف **## التصحيح النموذجي للتمرين وشبكة تقويم المذكرة** يتضمن الحل الكامل ومؤشرات تحقق الكفاءة.'
+            : ''
+        }
+
+قواعد صارمة:
+- لا تكتب الترويسة الإدارية (الجمهورية الجزائرية / مديرية التربية) داخل contentMarkdown لأن التطبيق يضيفها آلياً.
+- لا تستعمل &nbsp; أو أي وسوم HTML بتاتاً، واستعمل الرموز العلمية العالمية (x, y, A, B, cm, V, DA) عند الحاجة.`;
+      }
+    } else {
+      const docTypeInstructions: Record<string, string> = {
+        cours:
+          'Un cours complet structuré selon le programme officiel algérien (2e génération) : الكفاءة القاعدية / Objectif d’apprentissage, الوضعية الانطلاقية / Situation de départ, البناء المعرفي والشرح المفصل مع أمثلة محلولة, القاعدة / À retenir, وتطبيقات مباشرة.',
+        examen:
+          'Un Sujet d’Examen officiel trimestriel (اختبار الفصل / BEM) noté sur 20 points : التمرين الأول (أسئلة اختيار من متعدد بعلامة ☐ + جداول منظمة + تطبيقات، 06 نقاط)، التمرين الثاني (06 نقاط)، والوضعية الإدماجية (08 نقاط) مهيكلة بـ: السياق، السند 1 (وثيقة أو جدول معطيات)، السند 2، والتعليمات المرقمة مع تنقيط كل تعليمة.',
+        devoir:
+          'Un Devoir surveillé (فرض محروس) noté sur 20 points conforme au CEM algérien : التمرين الأول (يتضمن أسئلة اختيار من متعدد بعلامة ☐ وجدول إكمال أو مقارنة، 06 نقاط)، التمرين الثاني (06 نقاط)، ووضعية إدماجية (08 نقاط) تتضمن السياق + السند 1 + التعليمات المرقمة.',
+        exercice:
+          'Une Série d’exercices gradués (سلسلة تمارين محلولة) par difficulté : التمرين 1 (استرجاع المعارف واختيار من متعدد ☐)، التمرين 2 (تطبيق وتوظيف)، التمرين 3 (وضعية مشكلة مركبة من نمط BEM).',
+      };
+
+      const answerSpaceRule = answerSpaceMode
+        ? `\n5. وضع "ورقة أسئلة وإجابة" مُفعّل : أضف أسطر إجابة منقطة (مثل: ................................................................................) مباشرة تحت كل سؤال أو تعليمة حتى يتمكن التلميذ من الإجابة على نفس الورقة.`
+        : '';
+
+      const correctionRule = includeCorrection
+        ? `\n6. بما أن التصحيح النموذجي مطلوب: اكتب بعد نهاية أسئلة التلميذ السطر التالي بالضبط بمفرده:\n[[CORRECTION_PAGE]]\nثم أضف قسم "## التصحيح النموذجي وسلّم التنقيط" (أو "## Corrigé type et barème détaillé" بالفرنسية / "## Model Answer & Marking Scale" بالإنجليزية) يتضمن حلاً كاملاً خطوة بخطوة وجدول سلّم تنقيط Markdown مفصل مجموع نقاطه 20/20.`
+        : '';
+
+      systemInstruction =
+        'أنت خبير بيداغوجي جزائري في الطور المتوسط (CEM). تنتج مواضيع اختبارات، فروضاً، ودروساً نموذجية عالية الدقة مطابقة تماماً لمنهج وزارة التربية الوطنية الجزائرية وللأوراق الرسمية الجاهزة للطباعة والتصدير.';
+
+      prompt = `أنت مفتش بيداغوجي وأستاذ مكون خبير في التعليم المتوسط الجزائري (CEM - وزارة التربية الوطنية، مناهج الجيل الثاني الرسمية).
 
 أنشئ وثيقة بيداغوجية متكاملة وعالية الجودة جاهزة للطباعة A4 والتصدير إلى Word وفق المعطيات الدقيقة التالية:
 - المادة : ${subject}
@@ -307,32 +453,35 @@ ${includeDiagram ? '- أنشئ أيضاً رسماً تخطيطياً أو شك�
    - أبرز النقاط لكل تمرين ولكل سؤال فرعي بدقة مثل **(06 نقاط)** و **(01.5 نقطة)**.
 3. لا تكتب الترويسة الإدارية (الجمهورية الجزائرية / مديرية التربية / خانة الاسم واللقب) داخل contentMarkdown لأن التطبيق يضيفها آلياً في أعلى الورقة.
 4. ابدأ مباشرة بأقسام التمارين أو محاور الدرس بصيغة Markdown نظيفة (#، ##، ###، قوائم مرقمة، جداول)، واستعمل المسافات العادية دون أي وسوم أو رموز HTML مثل &nbsp;.${answerSpaceRule}${correctionRule}`;
+    }
 
-    const response = await withRetry(() =>
-      ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          systemInstruction:
-            'أنت خبير بيداغوجي جزائري في الطور المتوسط (CEM). تنتج مواضيع اختبارات، فروضاً، ومذكرات نموذجية عالية الدقة مطابقة تماماً لمنهج وزارة التربية الوطنية الجزائرية وللأوراق الرسمية الجاهزة للطباعة والتصدير.',
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING, description: 'عنوان رسمي دقيق للوثيقة باللغة المختارة (مثل: اختبار الفصل الأول في مادة...).' },
-              summary: { type: Type.STRING, description: 'خلاصة قصيرة في جملة واحدة للكفاءة المستهدفة.' },
-              contentMarkdown: { type: Type.STRING, description: 'المحتوى الكامل بصيغة Markdown نظيفة مع الجداول ورمز ☐ وعلامة [[CORRECTION_PAGE]] قبل التصحيح.' },
-              svgDiagram: {
-                type: Type.STRING,
-                description: 'كود SVG صالح (<svg viewBox="0 0 600 280" ...>...</svg>) أو سلسلة فارغة "".',
-              },
-            },
-            required: ['title', 'summary', 'contentMarkdown', 'svgDiagram'],
+    const response = await generateWithBoost(ai, {
+      contents: prompt,
+      systemInstruction,
+      thinkingLevel: ThinkingLevel.MEDIUM,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: {
+            type: Type.STRING,
+            description: 'Titre officiel précis du document dans la langue sélectionnée.',
+          },
+          summary: {
+            type: Type.STRING,
+            description: 'Résumé en une phrase de la compétence ciblée.',
+          },
+          contentMarkdown: {
+            type: Type.STRING,
+            description: 'Contenu complet en Markdown propre avec tableaux, cases ☐ et marqueur [[CORRECTION_PAGE]] avant le corrigé.',
+          },
+          svgDiagram: {
+            type: Type.STRING,
+            description: 'Code SVG valide (<svg viewBox="0 0 600 280" ...>...</svg>) ou chaîne vide "".',
           },
         },
-      })
-    );
+        required: ['title', 'summary', 'contentMarkdown', 'svgDiagram'],
+      },
+    });
 
     const parsed = safeParseJson<{
       title?: string;
@@ -379,24 +528,18 @@ Contraintes techniques obligatoires pour le SVG :
 - Texte lisible (font-family="sans-serif", font-size="13" à "15"), sans chevauchement ni débordement hors de 0..640 x 0..360
 - Pas de scripts ni d'images externes.`;
 
-    const response = await withRetry(() =>
-      ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              caption: { type: Type.STRING, description: 'Légende courte du schéma.' },
-              svg: { type: Type.STRING, description: 'Code SVG complet et valide.' },
-            },
-            required: ['caption', 'svg'],
-          },
+    const response = await generateWithBoost(ai, {
+      contents: prompt,
+      thinkingLevel: ThinkingLevel.LOW,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          caption: { type: Type.STRING, description: 'Légende courte du schéma.' },
+          svg: { type: Type.STRING, description: 'Code SVG complet et valide.' },
         },
-      })
-    );
+        required: ['caption', 'svg'],
+      },
+    });
 
     const parsed = safeParseJson<{ caption?: string; svg?: string }>(response.text);
     return res.json(parsed);
@@ -430,24 +573,18 @@ Paramètres :
 
 Donne un ton respectueux, clair, adapté au contexte éducatif algérien (avec mention BaridiMob / CCP / WhatsApp si paiement).`;
 
-    const response = await withRetry(() =>
-      ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              subjectLine: { type: Type.STRING, description: 'Objet court du message.' },
-              messageBody: { type: Type.STRING, description: 'Corps du message prêt à copier.' },
-            },
-            required: ['subjectLine', 'messageBody'],
-          },
+    const response = await generateWithBoost(ai, {
+      contents: prompt,
+      thinkingLevel: ThinkingLevel.LOW,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          subjectLine: { type: Type.STRING, description: 'Objet court du message.' },
+          messageBody: { type: Type.STRING, description: 'Corps du message prêt à copier.' },
         },
-      })
-    );
+        required: ['subjectLine', 'messageBody'],
+      },
+    });
 
     const parsed = safeParseJson<{ subjectLine?: string; messageBody?: string }>(response.text);
     return res.json(parsed);
@@ -481,37 +618,31 @@ Pour chaque carte :
 - emoji : 1 seul emoji pertinent et visuel
 - example : une phrase courte d'exemple en anglais adaptée au niveau ${targetLevel}.`;
 
-    const response = await withRetry(() =>
-      ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              cards: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    english: { type: Type.STRING },
-                    french: { type: Type.STRING },
-                    category: { type: Type.STRING },
-                    level: { type: Type.STRING },
-                    emoji: { type: Type.STRING },
-                    example: { type: Type.STRING },
-                  },
-                  required: ['english', 'french', 'category', 'level', 'emoji', 'example'],
-                },
+    const response = await generateWithBoost(ai, {
+      contents: prompt,
+      thinkingLevel: ThinkingLevel.LOW,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          cards: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                english: { type: Type.STRING },
+                french: { type: Type.STRING },
+                category: { type: Type.STRING },
+                level: { type: Type.STRING },
+                emoji: { type: Type.STRING },
+                example: { type: Type.STRING },
               },
+              required: ['english', 'french', 'category', 'level', 'emoji', 'example'],
             },
-            required: ['cards'],
           },
         },
-      })
-    );
+        required: ['cards'],
+      },
+    });
 
     const parsed = safeParseJson<{ cards?: unknown[] }>(response.text);
     return res.json({ cards: Array.isArray(parsed.cards) ? parsed.cards : [] });
@@ -660,35 +791,29 @@ app.post('/api/flashcards/external-pack', async (req, res) => {
 
 Liste : ${JSON.stringify(wordList)}`;
 
-        const aiResp = await withRetry(() =>
-          ai.models.generateContent({
-            model: 'gemini-4-hydrogen',
-            contents: prompt,
-            config: {
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  translations: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        english: { type: Type.STRING },
-                        french: { type: Type.STRING },
-                        category: { type: Type.STRING },
-                        example: { type: Type.STRING },
-                      },
-                      required: ['english', 'french', 'category', 'example'],
-                    },
+        const aiResp = await generateWithBoost(ai, {
+          contents: prompt,
+          thinkingLevel: ThinkingLevel.LOW,
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              translations: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    english: { type: Type.STRING },
+                    french: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    example: { type: Type.STRING },
                   },
+                  required: ['english', 'french', 'category', 'example'],
                 },
-                required: ['translations'],
               },
             },
-          })
-        );
+            required: ['translations'],
+          },
+        });
 
         const parsed = safeParseJson<{
           translations?: { english: string; french: string; category: string; example: string }[];
