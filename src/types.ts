@@ -106,3 +106,20 @@ export interface CurriculumTopic {
   competency: string;
   keyPoints: string[];
 }
+
+export type SubscriberPlan = 'MENSUEL' | 'TRIMESTRE' | 'ANNUEL' | 'ACCES_TOTAL';
+
+export interface Subscriber {
+  id: string;
+  ownerId?: string;
+  fullName: string;
+  email?: string;
+  phone?: string;
+  plan: SubscriberPlan;
+  active: boolean;
+  licenseCode?: string;
+  expiresAt?: string;
+  notes?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}

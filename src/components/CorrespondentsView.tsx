@@ -1,15 +1,20 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   Copy,
   CreditCard,
   KeyRound,
   Loader2,
+  Lock,
   MessageSquare,
   Plus,
+  Power,
   Receipt,
+  ShieldCheck,
   Sparkles,
   Trash2,
+  Unlock,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import { SUBJECTS } from '../data/algerianCurriculum';
@@ -19,14 +24,62 @@ import {
   Invoice,
   LanguageType,
   LevelType,
+  Subscriber,
+  SubscriberPlan,
 } from '../types';
+import { ADMIN_PIN_STORAGE_KEY, buildApiHeaders, getApiBase } from '../utils/authHeaders';
+
+async function safeCopyText(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback below when Clipboard API is blocked inside an iframe
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 interface CorrespondentsViewProps {
   correspondents: Correspondent[];
   invoices: Invoice[];
   userEmail?: string;
+  adminToken?: string | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
+  globalOpenAccess: boolean;
+  subscribers: Subscriber[];
+  initialSubTab?: 'correspondents' | 'invoices' | 'licenses' | 'admin';
   onRequestSignIn: () => void;
+  onUnlockAdminPin: (pin: string) => Promise<void>;
+  onToggleGlobalOpenAccess: (nextValue: boolean) => Promise<void>;
+  onAddSubscriber: (params: {
+    fullName: string;
+    email?: string;
+    phone?: string;
+    plan: SubscriberPlan;
+    active: boolean;
+    notes?: string;
+  }) => Promise<Subscriber | null>;
+  onToggleSubscriberActive: (sub: Subscriber) => Promise<void>;
+  onDeleteSubscriber: (id: string) => Promise<void>;
   onAddCorrespondent: (data: Omit<Correspondent, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   onDeleteCorrespondent: (id: string) => Promise<void>;
   onCreateInvoice: (params: {
@@ -50,17 +103,35 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
   correspondents,
   invoices,
   userEmail,
+  adminToken,
   isAuthenticated,
+  isAdmin,
+  globalOpenAccess,
+  subscribers,
+  initialSubTab,
   onRequestSignIn,
+  onUnlockAdminPin,
+  onToggleGlobalOpenAccess,
+  onAddSubscriber,
+  onToggleSubscriberActive,
+  onDeleteSubscriber,
   onAddCorrespondent,
   onDeleteCorrespondent,
   onCreateInvoice,
   onMarkInvoicePaid,
   onSaveInvoiceDraftMessage,
 }) => {
-  const [activeTab, setActiveTab] = useState<'correspondents' | 'invoices' | 'licenses'>('correspondents');
+  const [activeTab, setActiveTab] = useState<'correspondents' | 'invoices' | 'licenses' | 'admin'>(
+    initialSubTab || (isAdmin ? 'admin' : 'correspondents')
+  );
   const [showAddModal, setShowAddModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   // Admin license code generator state
   const [adminPin, setAdminPin] = useState('');
@@ -70,6 +141,20 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
   const [genLoading, setGenLoading] = useState(false);
   const [generatedLicense, setGeneratedLicense] = useState<{ code: string; plan: string; expiresAt: string } | null>(null);
   const [copiedLicense, setCopiedLicense] = useState(false);
+
+  // Admin Access & Subscriber Management state
+  const [adminUnlockPinInput, setAdminUnlockPinInput] = useState('');
+  const [adminPinBusy, setAdminPinBusy] = useState(false);
+  const [globalToggleBusy, setGlobalToggleBusy] = useState(false);
+  const [subFullName, setSubFullName] = useState('');
+  const [subEmail, setSubEmail] = useState('');
+  const [subPhone, setSubPhone] = useState('');
+  const [subPlan, setSubPlan] = useState<SubscriberPlan>('TRIMESTRE');
+  const [subActive, setSubActive] = useState(true);
+  const [subNotes, setSubNotes] = useState('');
+  const [subSubmitting, setSubSubmitting] = useState(false);
+  const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
+  const [copiedSubCodeId, setCopiedSubCodeId] = useState<string | null>(null);
 
   // Add Correspondent form state
   const [fullName, setFullName] = useState('');
@@ -181,7 +266,7 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
     try {
       const amount = aiTargetInvoice ? aiTargetInvoice.amountDzd : aiTargetCorr.balanceDueDzd;
       const docTitle = aiTargetInvoice ? aiTargetInvoice.documentTitle : aiTargetCorr.planName;
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/ai/correspondent-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -224,21 +309,35 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
     setErrorMsg(null);
     setGeneratedLicense(null);
     try {
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ adminToken });
+      const storedPin =
+        typeof window !== 'undefined' ? window.localStorage.getItem(ADMIN_PIN_STORAGE_KEY) || '' : '';
       const res = await fetch(`${apiBase}/api/license/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
+        credentials: 'include',
         body: JSON.stringify({
           adminEmail: userEmail || '',
-          adminPin,
+          adminPin: adminPin.trim() || storedPin,
           planType: genPlanType,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const raw = await res.text();
+      let data: { code?: string; plan?: string; expiresAt?: string; error?: string } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as typeof data) : {};
+      } catch {
+        throw new Error(`Erreur serveur (${res.status}). Veuillez réessayer.`);
+      }
+      if (!res.ok || !data.code) {
         throw new Error(data.error || 'Accès refusé pour la génération du code.');
       }
-      setGeneratedLicense(data);
+      setGeneratedLicense({
+        code: data.code,
+        plan: data.plan || genPlanType,
+        expiresAt: data.expiresAt || '',
+      });
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erreur génération code.');
     } finally {
@@ -249,9 +348,11 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
   const handleCopyLicenseMessage = async () => {
     if (!generatedLicense) return;
     const msg = `Bonjour${genClientName ? ` ${genClientName}` : ''},\nVoici votre code d'activation Madrassati CEM (${generatedLicense.plan}) valable jusqu'au ${generatedLicense.expiresAt} :\n${generatedLicense.code}\n\nMerci pour votre paiement CCP / BaridiMob.`;
-    await navigator.clipboard.writeText(msg);
-    setCopiedLicense(true);
-    setTimeout(() => setCopiedLicense(false), 2000);
+    const ok = await safeCopyText(msg);
+    if (ok) {
+      setCopiedLicense(true);
+      setTimeout(() => setCopiedLicense(false), 2000);
+    }
   };
 
   const normalizedClientWa = genClientPhone.replace(/[^0-9]/g, '').replace(/^0/, '213');
@@ -263,21 +364,109 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
 
   const handleCopyAiMessage = async () => {
     const full = aiSubjectLine ? `${aiSubjectLine}\n\n${aiMessageBody}` : aiMessageBody;
-    await navigator.clipboard.writeText(full);
-    setCopiedAi(true);
-    setTimeout(() => setCopiedAi(false), 2000);
+    const ok = await safeCopyText(full);
+    if (ok) {
+      setCopiedAi(true);
+      setTimeout(() => setCopiedAi(false), 2000);
+    }
   };
 
-  if (!isAuthenticated) {
+  const handleAdminPinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminUnlockPinInput.trim()) return;
+    setAdminPinBusy(true);
+    setErrorMsg(null);
+    try {
+      await onUnlockAdminPin(adminUnlockPinInput.trim());
+      setAdminUnlockPinInput('');
+      setActiveTab('admin');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Code PIN administrateur invalide.');
+    } finally {
+      setAdminPinBusy(false);
+    }
+  };
+
+  const handleToggleGlobal = async () => {
+    setGlobalToggleBusy(true);
+    setErrorMsg(null);
+    try {
+      await onToggleGlobalOpenAccess(!globalOpenAccess);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Impossible de modifier l’accès global.');
+    } finally {
+      setGlobalToggleBusy(false);
+    }
+  };
+
+  const handleAddSubscriberSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subFullName.trim()) return;
+    setSubSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await onAddSubscriber({
+        fullName: subFullName.trim(),
+        email: subEmail.trim(),
+        phone: subPhone.trim(),
+        plan: subPlan,
+        active: subActive,
+        notes: subNotes.trim(),
+      });
+      setSubFullName('');
+      setSubEmail('');
+      setSubPhone('');
+      setSubNotes('');
+      setSubActive(true);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erreur ajout abonné.');
+    } finally {
+      setSubSubmitting(false);
+    }
+  };
+
+  const handleToggleSubscriber = async (sub: Subscriber) => {
+    setTogglingSubId(sub.id);
+    setErrorMsg(null);
+    try {
+      await onToggleSubscriberActive(sub);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erreur changement statut abonné.');
+    } finally {
+      setTogglingSubId(null);
+    }
+  };
+
+  const handlePromoteCorrespondentToSubscriber = async (c: Correspondent) => {
+    setSubSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await onAddSubscriber({
+        fullName: c.fullName,
+        email: c.email || '',
+        phone: c.phone || '',
+        plan: 'TRIMESTRE',
+        active: true,
+        notes: `${c.roleType} · ${c.levelFocus}`,
+      });
+      setActiveTab('admin');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erreur activation abonné.');
+    } finally {
+      setSubSubmitting(false);
+    }
+  };
+
+  if (!isAuthenticated && !isAdmin) {
     return (
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center space-y-4 max-w-xl mx-auto">
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center space-y-5 max-w-xl mx-auto">
           <Users className="w-9 h-9 text-emerald-700 mx-auto" />
           <h1 className="text-xl font-bold text-slate-900">
-            Gestion payante avec vos correspondants
+            Gestion payante & Administration des abonnés
           </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Centralisez vos collègues CEM, parents d’élèves et élèves en soutien, facturez vos packs de cours ou sujets d’examens en DZD, et générez vos relances IA en français, arabe ou anglais.
+            Centralisez vos collègues CEM, gérez l’accès total ouvert et activez/désactivez vos abonnés en temps réel.
           </p>
           <button
             type="button"
@@ -286,6 +475,34 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
           >
             Se connecter avec Google
           </button>
+
+          <form onSubmit={handleAdminPinSubmit} className="pt-4 border-t border-slate-100 space-y-2.5 text-left">
+            <label className="block text-xs font-semibold text-slate-700">
+              Ou déverrouiller l’espace Administrateur par PIN
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={adminUnlockPinInput}
+                onChange={(e) => setAdminUnlockPinInput(e.target.value)}
+                placeholder="Code PIN Admin"
+                className="flex-1 h-9 px-3 text-xs font-mono-tabular border border-slate-200 rounded-lg"
+              />
+              <button
+                type="submit"
+                disabled={adminPinBusy}
+                className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+              >
+                {adminPinBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>Ouvrir Admin</span>
+              </button>
+            </div>
+            {errorMsg && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                {errorMsg}
+              </div>
+            )}
+          </form>
         </div>
       </div>
     );
@@ -397,12 +614,340 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
           }`}
         >
           <KeyRound className="w-3.5 h-3.5" />
-          <span>Codes d’activation CCP</span>
+          <span>Codes CCP</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('admin')}
+          className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'admin'
+              ? 'bg-white text-emerald-800 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Admin & Abonnés ({subscribers.filter((s) => s.active).length}/{subscribers.length})</span>
         </button>
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'licenses' ? (
+      {activeTab === 'admin' ? (
+        !isAdmin ? (
+          <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-md space-y-4">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              <span>Accès Administrateur requis</span>
+            </div>
+            <p className="text-xs text-slate-600">
+              Connectez-vous avec le compte propriétaire ou entrez le code PIN administrateur pour gérer l’accès total ouvert et activer/désactiver les abonnés.
+            </p>
+            <form onSubmit={handleAdminPinSubmit} className="flex gap-2">
+              <input
+                type="password"
+                required
+                value={adminUnlockPinInput}
+                onChange={(e) => setAdminUnlockPinInput(e.target.value)}
+                placeholder="Code PIN Admin"
+                className="flex-1 h-10 px-3 text-xs font-mono-tabular border border-slate-200 rounded-lg"
+              />
+              <button
+                type="submit"
+                disabled={adminPinBusy}
+                className="h-10 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg"
+              >
+                {adminPinBusy ? 'Vérification...' : 'Déverrouiller'}
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Top 2 Control Cards: Admin Full Access + Global Open Access Toggle */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-900">
+                    <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                    <span>Accès Total Administrateur : ACTIF</span>
+                  </div>
+                  <p className="text-xs text-emerald-900/80 leading-relaxed">
+                    Votre compte administrateur ({userEmail || 'PIN Admin'}) dispose en permanence d’un accès complet sans limite (Atelier IA, Fiches, Word, PDF A4, Télécharger cartes françaises anglais, Bibliothèque).
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-md bg-emerald-700 text-white text-[11px] font-bold whitespace-nowrap">
+                  OUVERT 100%
+                </span>
+              </div>
+
+              <div
+                className={`border rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                  globalOpenAccess
+                    ? 'bg-emerald-50 border-emerald-300'
+                    : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                    {globalOpenAccess ? (
+                      <Unlock className="w-4 h-4 text-emerald-700" />
+                    ) : (
+                      <Lock className="w-4 h-4 text-amber-600" />
+                    )}
+                    <span>
+                      Accès total ouvert à tous : {globalOpenAccess ? 'ACTIVÉ' : 'DÉSACTIVÉ'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    {globalOpenAccess
+                      ? 'Tous les enseignants et visiteurs ont actuellement accès à toutes les fonctionnalités sans paiement.'
+                      : 'Seuls l’admin, les abonnés actifs et les codes CCP valides ont l’accès illimité.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleToggleGlobal}
+                  disabled={globalToggleBusy}
+                  className={`h-10 px-4 text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${
+                    globalOpenAccess
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                  }`}
+                >
+                  {globalToggleBusy ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Power className="w-4 h-4" />
+                  )}
+                  <span>
+                    {globalOpenAccess ? 'Désactiver accès total' : 'Activer accès total ouvert'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Add Subscriber Form */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-700" />
+                  <span>Ajouter / Activer un abonné</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Renseignez l’email Google de l’abonné pour le débloquer automatiquement à la connexion, et/ou générez son code CCP. Vous pouvez l’activer ou le désactiver à tout moment.
+                </p>
+              </div>
+
+              <form onSubmit={handleAddSubscriberSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Nom complet *</label>
+                  <input
+                    type="text"
+                    required
+                    value={subFullName}
+                    onChange={(e) => setSubFullName(e.target.value)}
+                    placeholder="Ex: Prof. Sara Mansouri"
+                    className="w-full h-9 px-3 text-xs border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Email Google (auto-accès)</label>
+                  <input
+                    type="email"
+                    value={subEmail}
+                    onChange={(e) => setSubEmail(e.target.value)}
+                    placeholder="prof@gmail.com"
+                    className="w-full h-9 px-3 text-xs border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Téléphone WhatsApp</label>
+                  <input
+                    type="text"
+                    value={subPhone}
+                    onChange={(e) => setSubPhone(e.target.value)}
+                    placeholder="0550123456"
+                    className="w-full h-9 px-3 text-xs font-mono-tabular border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Formule</label>
+                  <select
+                    value={subPlan}
+                    onChange={(e) => setSubPlan(e.target.value as SubscriberPlan)}
+                    className="w-full h-9 px-2.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="MENSUEL">Mensuel (30j)</option>
+                    <option value="TRIMESTRE">Trimestre (90j)</option>
+                    <option value="ANNUEL">Annuel (365j)</option>
+                    <option value="ACCES_TOTAL">Accès Total (365j)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Statut initial</label>
+                  <select
+                    value={subActive ? 'active' : 'inactive'}
+                    onChange={(e) => setSubActive(e.target.value === 'active')}
+                    className="w-full h-9 px-2.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="active">Actif (Ouvert)</option>
+                    <option value="inactive">Désactivé (Suspendu)</option>
+                  </select>
+                </div>
+                <button
+                  type="submit"
+                  disabled={subSubmitting}
+                  className="h-9 px-4 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                >
+                  {subSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  <span>Enregistrer</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Subscribers Table */}
+            <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+              <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Liste des abonnés ({subscribers.length})
+                </h3>
+                <span className="text-xs text-slate-500">
+                  {subscribers.filter((s) => s.active).length} actif(s) · {subscribers.filter((s) => !s.active).length} désactivé(s)
+                </span>
+              </div>
+
+              {subscribers.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">
+                  Aucun abonné enregistré pour le moment. Utilisez le formulaire ci-dessus ou cliquez sur « + Abonné » dans votre répertoire.
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                      <th className="py-3 px-4">Abonné</th>
+                      <th className="py-3 px-4">Formule & Échéance</th>
+                      <th className="py-3 px-4">Code d’activation</th>
+                      <th className="py-3 px-4">Statut</th>
+                      <th className="py-3 px-4 text-right">Activer / Désactiver</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {subscribers.map((sub) => {
+                      const waPhone = (sub.phone || '').replace(/[^0-9]/g, '').replace(/^0/, '213');
+                      const waLink = `https://wa.me/${waPhone || '213557767804'}?text=${encodeURIComponent(
+                        `Salam ${sub.fullName}, votre accès Madrassati CEM (${sub.plan}) est ${
+                          sub.active ? 'ACTIVÉ' : 'SUSPENDU'
+                        }.${sub.licenseCode ? ` Code : ${sub.licenseCode}` : ''}`
+                      )}`;
+                      return (
+                        <tr key={sub.id} className="hover:bg-slate-50/70">
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-900 text-sm">{sub.fullName}</div>
+                            <div className="text-slate-500">
+                              {[sub.email, sub.phone].filter(Boolean).join(' · ') || 'Sans email/téléphone'}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="font-semibold text-slate-800">{sub.plan}</div>
+                            {sub.expiresAt && (
+                              <div className="text-[11px] text-slate-500 font-mono-tabular">
+                                Expire : {sub.expiresAt}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            {sub.licenseCode ? (
+                              <div className="inline-flex items-center gap-1.5">
+                                <code className="px-2 py-1 rounded bg-slate-100 text-slate-900 font-mono-tabular text-[11px]">
+                                  {sub.licenseCode}
+                                </code>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const ok = await safeCopyText(sub.licenseCode || '');
+                                    if (ok) {
+                                      setCopiedSubCodeId(sub.id);
+                                      setTimeout(() => setCopiedSubCodeId(null), 1500);
+                                    }
+                                  }}
+                                  className="p-1 text-slate-500 hover:text-slate-900"
+                                  title="Copier le code"
+                                >
+                                  {copiedSubCodeId === sub.id ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">Via compte Google</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            {sub.active ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold">
+                                <Check className="w-3 h-3" />
+                                <span>Actif</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 font-semibold">
+                                <Lock className="w-3 h-3" />
+                                <span>Désactivé</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSubscriber(sub)}
+                                disabled={togglingSubId === sub.id}
+                                className={`h-8 px-3 rounded-md font-semibold inline-flex items-center gap-1.5 ${
+                                  sub.active
+                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                                    : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                }`}
+                              >
+                                {togglingSubId === sub.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Power className="w-3 h-3" />
+                                )}
+                                <span>{sub.active ? 'Désactiver' : 'Activer'}</span>
+                              </button>
+
+                              {sub.phone && (
+                                <a
+                                  href={waLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="h-8 px-2.5 bg-[#16A34A] hover:bg-[#15803D] text-white rounded-md inline-flex items-center gap-1"
+                                  title="Notifier sur WhatsApp"
+                                >
+                                  <MessageSquare className="w-3 h-3" />
+                                </a>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => onDeleteSubscriber(sub.id)}
+                                className="h-8 px-2 text-rose-600 hover:bg-rose-50 rounded-md"
+                                title="Supprimer abonné"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )
+      ) : activeTab === 'licenses' ? (
         <div className="bg-white border border-slate-200 rounded-xl p-6 max-w-2xl space-y-5">
           <div>
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -430,13 +975,13 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  PIN Admin {userEmail === 'sofianemascara07@gmail.com' ? '(Admin vérifié)' : ''}
+                  PIN Admin {isAdmin ? '(Admin vérifié)' : ''}
                 </label>
                 <input
                   type="password"
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value)}
-                  placeholder={userEmail === 'sofianemascara07@gmail.com' ? 'Optionnel (compte propriétaire)' : 'Code PIN administrateur'}
+                  placeholder={isAdmin ? 'Optionnel (session Admin active)' : 'Code PIN administrateur'}
                   className="w-full h-10 px-3 text-sm font-mono-tabular border border-slate-200 rounded-lg"
                 />
               </div>
@@ -586,6 +1131,17 @@ export const CorrespondentsView: React.FC<CorrespondentsViewProps> = ({
                           <CreditCard className="w-3.5 h-3.5" />
                           <span>Facturer</span>
                         </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handlePromoteCorrespondentToSubscriber(c)}
+                            className="h-8 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded-md inline-flex items-center gap-1"
+                            title="Ajouter comme abonné"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>+ Abonné</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => onDeleteCorrespondent(c.id)}

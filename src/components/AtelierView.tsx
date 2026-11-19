@@ -13,6 +13,7 @@ import {
   Printer,
   Save,
   Share2,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -37,6 +38,7 @@ import {
   TrimesterType,
 } from '../types';
 import { exportToWordDocx, triggerPrintPdf } from '../utils/exportUtils';
+import { buildApiHeaders, getApiBase } from '../utils/authHeaders';
 import { DocumentSheet, SheetHeaderConfig } from './DocumentSheet';
 
 export interface ActiveDraft {
@@ -77,11 +79,14 @@ interface AtelierViewProps {
   }) => Promise<void>;
   licenseCode: string | null;
   licensePlan: string | null;
+  adminToken?: string | null;
+  isAdmin?: boolean;
   isLicensed: boolean;
   trialsUsed: number;
   maxTrials: number;
   onIncrementTrial: () => void;
   onOpenActivationModal: () => void;
+  onOpenAdminPanel?: () => void;
 }
 
 export const AtelierView: React.FC<AtelierViewProps> = ({
@@ -99,11 +104,14 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
   onCreatePaidShare,
   licenseCode,
   licensePlan,
+  adminToken,
+  isAdmin = false,
   isLicensed,
   trialsUsed,
   maxTrials,
   onIncrementTrial,
   onOpenActivationModal,
+  onOpenAdminPanel,
 }) => {
   const topics = ALGERIAN_CEM_CURRICULUM[draft.subject][draft.level] || [];
   const [selectedTopic, setSelectedTopic] = useState<string>(topics[0]?.title || '');
@@ -253,14 +261,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
     setIsGeneratingDoc(true);
     try {
       const topicToUse = selectedTopic.trim() || `${draft.subject} ${draft.level}`;
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ licenseCode, trialsUsed, adminToken });
       const res = await fetch(`${apiBase}/api/ai/generate-document`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(licenseCode ? { 'X-Activation-Code': licenseCode } : {}),
-          'X-Trial-Count': String(trialsUsed),
-        },
+        headers,
         body: JSON.stringify({
           subject: draft.subject,
           level: draft.level,
@@ -304,14 +309,11 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
     setErrorMsg(null);
     setIsGeneratingDiagram(true);
     try {
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ licenseCode, trialsUsed, adminToken });
       const res = await fetch(`${apiBase}/api/ai/generate-diagram`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(licenseCode ? { 'X-Activation-Code': licenseCode } : {}),
-          'X-Trial-Count': String(trialsUsed),
-        },
+        headers,
         body: JSON.stringify({
           subject: draft.subject,
           level: draft.level,
@@ -442,27 +444,50 @@ export const AtelierView: React.FC<AtelierViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Pedagogical Control Panel */}
         <aside className="no-print lg:col-span-4 space-y-5 bg-white border border-slate-200 rounded-xl p-5">
-          {/* License / Trial Banner */}
-          <div className={`p-3.5 rounded-lg border text-xs ${isLicensed ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/80 border-amber-200 text-amber-950'}`}>
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-semibold flex items-center gap-1.5">
-                {isLicensed ? <KeyRound className="w-3.5 h-3.5 text-emerald-700" /> : <Lock className="w-3.5 h-3.5 text-amber-700" />}
-                <span>{isLicensed ? `Licence Pro active (${licensePlan || 'PRO'})` : `Mode Découverte : ${trialsRemaining}/${maxTrials} essais IA`}</span>
+          {/* License / Trial / Admin Banner */}
+          {isAdmin ? (
+            <div className="p-3.5 rounded-lg border text-xs bg-emerald-50/80 border-emerald-200 text-emerald-950">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>Accès Total Administrateur actif</span>
+                </div>
+                {onOpenAdminPanel && (
+                  <button
+                    type="button"
+                    onClick={onOpenAdminPanel}
+                    className="font-semibold underline hover:opacity-80 whitespace-nowrap"
+                  >
+                    Gérer Abonnés
+                  </button>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={onOpenActivationModal}
-                className="font-semibold underline hover:opacity-80 whitespace-nowrap"
-              >
-                {isLicensed ? 'Détails' : 'Activer CCP'}
-              </button>
-            </div>
-            {!isLicensed && (
               <p className="mt-1 text-[11px] opacity-85">
-                L’export Word (.docx), l’impression PDF et la génération illimitée requièrent un code d’activation via CCP / WhatsApp 05 57 76 78 04.
+                Accès illimité ouvert directement sans publicités ni restriction.
               </p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className={`p-3.5 rounded-lg border text-xs ${isLicensed ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-amber-50/80 border-amber-200 text-amber-950'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold flex items-center gap-1.5">
+                  {isLicensed ? <KeyRound className="w-3.5 h-3.5 text-emerald-700" /> : <Lock className="w-3.5 h-3.5 text-amber-700" />}
+                  <span>{isLicensed ? `Licence Pro active (${licensePlan || 'PRO'})` : `Mode Découverte : ${trialsRemaining}/${maxTrials} essais IA`}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenActivationModal}
+                  className="font-semibold underline hover:opacity-80 whitespace-nowrap"
+                >
+                  {isLicensed ? 'Détails' : 'Activer CCP'}
+                </button>
+              </div>
+              {!isLicensed && (
+                <p className="mt-1 text-[11px] opacity-85">
+                  L’export Word (.docx), l’impression PDF et la génération illimitée requièrent un code d’activation via CCP / WhatsApp 05 57 76 78 04.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <h2 className="text-base font-semibold text-slate-900">01. Paramètres du programme CEM</h2>

@@ -313,6 +313,93 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AppAccessConfig": {
+      "title": "AppAccessConfig",
+      "description": "Global access settings controlled by the administrator (Open Access mode vs subscriber/CCP lock).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "globalOpenAccess": {
+          "type": "boolean"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "globalOpenAccess", "updatedBy", "updatedAt"]
+    },
+    "Subscriber": {
+      "title": "Subscriber",
+      "description": "Teacher or subscriber account managed by the admin with activate/deactivate control.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["MENSUEL", "TRIMESTRE", "ANNUEL", "ACCES_TOTAL"]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "licenseCode": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "expiresAt": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerId", "fullName", "plan", "active", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -331,6 +418,14 @@
     "/invoices/{invoiceId}": {
       "schema": { "$ref": "#/entities/Invoice" },
       "description": "Paid shares and invoices issued to correspondents."
+    },
+    "/appSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppAccessConfig" },
+      "description": "Global application access toggle managed by the administrator."
+    },
+    "/subscribers/{subscriberId}": {
+      "schema": { "$ref": "#/entities/Subscriber" },
+      "description": "Subscriber activation and suspension registry managed by the administrator."
     }
   }
 }

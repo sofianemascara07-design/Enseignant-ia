@@ -1,22 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ExternalLink,
+  Check,
+  Download,
   Globe,
   Grid2x2,
   Grid3x3,
   Layers,
   Loader2,
+  Lock,
   Plus,
   Printer,
   QrCode,
   Scissors,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
   Wand2,
 } from 'lucide-react';
 import { LevelType } from '../types';
+import { ADMIN_PIN_STORAGE_KEY, buildApiHeaders, getApiBase, parseJsonSafe } from '../utils/authHeaders';
 
 export type FlashcardCategory = 'Nom' | 'Verbe' | 'Adjectif' | 'Expression';
 
@@ -33,11 +37,17 @@ export interface FlashcardItem {
 
 interface FlashcardsViewProps {
   licenseCode: string | null;
+  adminToken?: string | null;
+  isAdmin?: boolean;
   isLicensed: boolean;
   trialsUsed: number;
   maxTrials: number;
+  openDirectSiteSignal?: number;
   onIncrementTrial: () => void;
   onOpenActivationModal: () => void;
+  onOpenAdminPanel?: () => void;
+  onOpenAdminQuickUnlock?: () => void;
+  onUnlockAdminPin?: (pin: string) => Promise<void>;
 }
 
 const CATEGORY_COLORS: Record<
@@ -197,12 +207,17 @@ function reverseRowsForDuplex<T>(pageCards: (T | null)[], cols: number): (T | nu
 
 export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   licenseCode,
+  adminToken,
+  isAdmin = false,
   isLicensed,
   trialsUsed,
   maxTrials,
+  openDirectSiteSignal = 0,
   onIncrementTrial,
   onOpenActivationModal,
+  onOpenAdminPanel,
 }) => {
+  const hasProOrAdmin = Boolean(isAdmin || isLicensed);
   const [cards, setCards] = useState<FlashcardItem[]>(() =>
     CEM_SAMPLE_CARDS.map((c, idx) => ({ ...c, id: `init_${idx}` }))
   );
@@ -218,7 +233,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   const imgInputRef = useRef<HTMLInputElement>(null);
 
   // Bulk CSV & External Connector state
-  const [inputMode, setInputMode] = useState<'manual' | 'bulk' | 'ai' | 'external'>('manual');
+  const [inputMode, setInputMode] = useState<'external' | 'manual' | 'bulk' | 'ai'>('external');
   const [bulkText, setBulkText] = useState(
     'Breakfast ; Petit-déjeuner ; Nom\nWrite ; Écrire ; Verbe\nHelpful ; Serviable ; Adjectif\nHow are you? ; Comment allez-vous ? ; Expression'
   );
@@ -231,48 +246,140 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   const [extImportingPath, setExtImportingPath] = useState<string | null>(null);
   const [extSearch, setExtSearch] = useState('');
   const [extLevel, setExtLevel] = useState<LevelType>('1AM');
+  const [extUseAi, setExtUseAi] = useState(true);
   const [extError, setExtError] = useState<string | null>(null);
+  const [extInfo, setExtInfo] = useState<string | null>(null);
+  const [extCatalogAttempt, setExtCatalogAttempt] = useState(0);
+  const [extWorkspaceMode, setExtWorkspaceMode] = useState<'site' | 'picker' | 'sheet'>('site');
+  const [extSitePath, setExtSitePath] = useState<string>('/fr/flashcards-en-anglais');
+  const [pickerPack, setPickerPack] = useState<{
+    path: string;
+    title: string;
+    cards: { english: string; imageUrl: string }[];
+    pdfDownloads?: { label: string; format: string; url: string }[];
+  } | null>(null);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerSelected, setPickerSelected] = useState<string[]>([]);
+
+  // Print & Sheet settings
+  const [gridMode, setGridMode] = useState<'8' | '9'>('8');
+  const [printMode, setPrintMode] = useState<'single' | 'duplex'>('single');
+  const [showCutMarks, setShowCutMarks] = useState(true);
+  const [showLevelBadge, setShowLevelBadge] = useState(true);
+  const [showQrZone, setShowQrZone] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState<number>(80);
+
+  const cols = gridMode === '8' ? 2 : 3;
+  const rowsPerPage = gridMode === '8' ? 4 : 3;
+  const cardsPerPage = cols * rowsPerPage;
+
+  useEffect(() => {
+    if (isAdmin) {
+      setInputMode('external');
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (openDirectSiteSignal > 0) {
+      setInputMode('external');
+      setExtSitePath('/fr/flashcards-en-anglais');
+      setExtWorkspaceMode('site');
+    }
+  }, [openDirectSiteSignal]);
 
   useEffect(() => {
     if (inputMode !== 'external' || externalPacks.length > 0) return;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     setExtLoadingCatalog(true);
     setExtError(null);
-    const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-    fetch(`${apiBase}/api/flashcards/external-catalog`)
-      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
-      .then(({ ok, d }) => {
+    const apiBase = getApiBase();
+
+    const loadCatalog = async (attempt: number) => {
+      try {
+        const headers = await buildApiHeaders({ licenseCode, adminToken });
+        const r = await fetch(`${apiBase}/api/flashcards/external-catalog`, { headers, credentials: 'include' });
+        const d = await parseJsonSafe<{ error?: string; packs?: typeof externalPacks }>(r);
         if (cancelled) return;
-        if (!ok) throw new Error(d.error || 'Impossible de charger kids-flashcards.com');
+        if (!r.ok) throw new Error(d.error || 'Impossible de charger les cartes françaises-anglais.');
         setExternalPacks(Array.isArray(d.packs) ? d.packs : []);
-      })
-      .catch((err) => {
-        if (!cancelled) setExtError(err instanceof Error ? err.message : 'Erreur chargement catalogue.');
-      })
-      .finally(() => {
-        if (!cancelled) setExtLoadingCatalog(false);
-      });
+        setExtLoadingCatalog(false);
+      } catch (err) {
+        if (cancelled) return;
+        if (attempt < 1) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) loadCatalog(attempt + 1);
+          }, 1200);
+          return;
+        }
+        setExtError(err instanceof Error ? err.message : 'Erreur chargement catalogue.');
+        setExtLoadingCatalog(false);
+      }
+    };
+
+    loadCatalog(0);
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [inputMode, externalPacks.length]);
+  }, [inputMode, externalPacks.length, licenseCode, adminToken, extCatalogAttempt]);
 
-  const handleImportExternalPack = async (packPath: string) => {
+  const handleOpenPackPicker = async (packPath: string, fallbackTitle: string) => {
+    setPickerLoading(true);
+    setExtError(null);
+    setExtWorkspaceMode('picker');
+    try {
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ licenseCode, adminToken });
+      const res = await fetch(
+        `${apiBase}/api/flashcards/external-pack-preview?path=${encodeURIComponent(packPath)}`,
+        { headers, credentials: 'include' }
+      );
+      const data = await parseJsonSafe<{
+        error?: string;
+        packTitle?: string;
+        cards?: { english: string; imageUrl: string }[];
+        pdfDownloads?: { label: string; format: string; url: string }[];
+      }>(res);
+      if (!res.ok) throw new Error(data.error || 'Erreur ouverture du pack.');
+      const list = Array.isArray(data.cards) ? data.cards : [];
+      const pdfDownloads = Array.isArray(data.pdfDownloads) ? data.pdfDownloads : [];
+      setPickerPack({
+        path: packPath,
+        title: data.packTitle || fallbackTitle,
+        cards: list,
+        pdfDownloads,
+      });
+      setPickerSelected(list.slice(0, cardsPerPage).map((c) => c.english));
+    } catch (err) {
+      setExtError(err instanceof Error ? err.message : 'Erreur ouverture du pack.');
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  const handleImportExternalPack = async (packPath: string, selectedWords?: string[]) => {
     setExtImportingPath(packPath);
     setExtError(null);
+    setExtInfo(null);
     try {
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ licenseCode, adminToken });
       const res = await fetch(`${apiBase}/api/flashcards/external-pack`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           packPath,
           level: extLevel,
-          maxCards: cardsPerPage * 2,
+          maxCards: selectedWords?.length || cardsPerPage * 2,
+          useAiEnrichment: extUseAi,
+          selectedWords,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur import du pack.');
+      const data = await parseJsonSafe<{ error?: string; cards?: Record<string, string>[]; aiEnriched?: boolean }>(res);
+      if (!res.ok) {
+        throw new Error(data.error || 'Erreur import du pack.');
+      }
       const list = Array.isArray(data.cards) ? data.cards : [];
       const mapped: FlashcardItem[] = list.map((item: Record<string, string>) => {
         const cat = (['Nom', 'Verbe', 'Adjectif', 'Expression'].includes(item.category)
@@ -291,6 +398,12 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
       });
       if (mapped.length > 0) {
         setCards(mapped);
+        setExtWorkspaceMode('sheet');
+        if (extUseAi && data.aiEnriched === false && !hasProOrAdmin) {
+          setExtInfo('Pack chargé directement sans publicité. Connectez l’accès Admin pour la traduction IA.');
+        } else {
+          setExtInfo(`${mapped.length} cartes ajoutées à la planche A4.`);
+        }
       }
     } catch (err) {
       setExtError(err instanceof Error ? err.message : 'Erreur import pack.');
@@ -299,23 +412,48 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
     }
   };
 
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data;
+      if (!payload || typeof payload !== 'object') return;
+
+      if (payload.type === 'kf-select-card' && payload.english && payload.imageUrl) {
+        const word = String(payload.english).trim();
+        const img = String(payload.imageUrl).trim();
+        setCards((prev) => {
+          const exists = prev.some((c) => c.english.toLowerCase() === word.toLowerCase());
+          const next = exists
+            ? prev
+            : [
+                ...prev.filter((c) => !c.id.startsWith('init_')),
+                {
+                  id: makeCardId(),
+                  english: word,
+                  french: word,
+                  category: 'Nom' as FlashcardCategory,
+                  level: extLevel,
+                  emoji: '📘',
+                  imageUrl: img,
+                  example: '',
+                },
+              ];
+          setExtInfo(`Carte « ${word} » ajoutée à votre planche A4 (${next.length} cartes).`);
+          return next;
+        });
+      } else if (payload.type === 'kf-import-pack' && typeof payload.packPath === 'string') {
+        handleImportExternalPack(payload.packPath);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [extLevel, extUseAi, cardsPerPage, licenseCode, adminToken]);
+
   // AI Deck generator
   const [aiTopic, setAiTopic] = useState('Daily routines & School life');
   const [aiLevel, setAiLevel] = useState<LevelType>('1AM');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-
-  // Print & Sheet settings
-  const [gridMode, setGridMode] = useState<'8' | '9'>('8');
-  const [printMode, setPrintMode] = useState<'single' | 'duplex'>('single');
-  const [showCutMarks, setShowCutMarks] = useState(true);
-  const [showLevelBadge, setShowLevelBadge] = useState(true);
-  const [showQrZone, setShowQrZone] = useState(false);
-  const [zoomPercent, setZoomPercent] = useState<number>(80);
-
-  const cols = gridMode === '8' ? 2 : 3;
-  const rowsPerPage = gridMode === '8' ? 4 : 3;
-  const cardsPerPage = cols * rowsPerPage;
 
   const pages = useMemo(() => {
     const chunks: FlashcardItem[][] = [];
@@ -397,28 +535,25 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
   };
 
   const handleGenerateAiDeck = async () => {
-    if (!isLicensed && trialsUsed >= maxTrials) {
+    if (!hasProOrAdmin && trialsUsed >= maxTrials) {
       onOpenActivationModal();
       return;
     }
     setAiLoading(true);
     setAiError(null);
     try {
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({ licenseCode, trialsUsed, adminToken });
       const res = await fetch(`${apiBase}/api/ai/generate-flashcards`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(licenseCode ? { 'X-Activation-Code': licenseCode } : {}),
-          'X-Trial-Count': String(trialsUsed),
-        },
+        headers,
         body: JSON.stringify({
           topic: aiTopic,
           level: aiLevel,
           count: cardsPerPage,
         }),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe<{ error?: string; locked?: boolean; cards?: Record<string, string>[] }>(res);
       if (!res.ok) {
         if (res.status === 402 || data.locked) onOpenActivationModal();
         throw new Error(data.error || 'Erreur génération flashcards IA.');
@@ -441,7 +576,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
       });
       if (mapped.length > 0) {
         setCards(mapped);
-        if (!isLicensed) onIncrementTrial();
+        if (!hasProOrAdmin) onIncrementTrial();
       }
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Erreur lors de la génération IA.');
@@ -584,45 +719,47 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
           </div>
 
           {/* Input Mode Switcher */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-slate-100 rounded-lg text-[11px] font-semibold">
-            <button
-              type="button"
-              onClick={() => setInputMode('manual')}
-              className={`py-1.5 px-1 rounded-md transition-colors whitespace-nowrap ${
-                inputMode === 'manual' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Manuel
-            </button>
-            <button
-              type="button"
-              onClick={() => setInputMode('bulk')}
-              className={`py-1.5 px-1 rounded-md transition-colors whitespace-nowrap ${
-                inputMode === 'bulk' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => setInputMode('ai')}
-              className={`py-1.5 px-1 rounded-md transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
-                inputMode === 'ai' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Pack IA</span>
-            </button>
+          <div className="space-y-1.5 p-1.5 bg-slate-100 rounded-lg text-[11px] font-semibold">
             <button
               type="button"
               onClick={() => setInputMode('external')}
-              className={`py-1.5 px-1 rounded-md transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
-                inputMode === 'external' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+              className={`w-full py-2 px-2.5 rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                inputMode === 'external' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-700 hover:text-slate-900'
               }`}
             >
-              <Globe className="w-3 h-3" />
-              <span>Kids-FC</span>
+              {isAdmin ? <Globe className="w-3.5 h-3.5 shrink-0" /> : <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+              <span>Télécharger cartes françaises anglais</span>
             </button>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={() => setInputMode('manual')}
+                className={`py-1.5 px-1 rounded-md transition-colors whitespace-nowrap ${
+                  inputMode === 'manual' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                Manuel
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode('bulk')}
+                className={`py-1.5 px-1 rounded-md transition-colors whitespace-nowrap ${
+                  inputMode === 'bulk' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode('ai')}
+                className={`py-1.5 px-1 rounded-md transition-colors flex items-center justify-center gap-1 whitespace-nowrap ${
+                  inputMode === 'ai' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Pack IA</span>
+              </button>
+            </div>
           </div>
 
           {inputMode === 'manual' && (
@@ -823,17 +960,48 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
 
           {inputMode === 'external' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-slate-800">Catalogue kids-flashcards.com</span>
-                <a
-                  href="https://kids-flashcards.com/fr/flashcards-en-anglais"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 hover:underline inline-flex items-center gap-1"
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="font-semibold text-slate-800">Cartes françaises-anglais · Accès ouvert</span>
+                {isAdmin && onOpenAdminPanel && (
+                  <button
+                    type="button"
+                    onClick={onOpenAdminPanel}
+                    className="font-semibold text-emerald-700 hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Admin · Accès Ouvert</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExtSitePath('/fr/flashcards-en-anglais');
+                    setExtWorkspaceMode('site');
+                  }}
+                  className={`h-8 px-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border ${
+                    extWorkspaceMode === 'site'
+                      ? 'bg-emerald-700 text-white border-emerald-700'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
                 >
-                  <span>Ouvrir le site</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Site Direct (Sans pub)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExtWorkspaceMode('picker')}
+                  className={`h-8 px-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 border ${
+                    extWorkspaceMode === 'picker'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Grid2x2 className="w-3.5 h-3.5" />
+                  <span>Choisir par thème</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
@@ -859,19 +1027,52 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                 </select>
               </div>
 
+              <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={extUseAi}
+                  onChange={(e) => setExtUseAi(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-emerald-600 rounded"
+                />
+                <span>Traduction FR &amp; exemples par IA (Admin / Abonné)</span>
+              </label>
+
+              {extInfo && (
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 flex items-center justify-between gap-2">
+                  <span>{extInfo}</span>
+                  <button
+                    type="button"
+                    onClick={() => setExtWorkspaceMode('sheet')}
+                    className="font-bold underline whitespace-nowrap"
+                  >
+                    Planche A4
+                  </button>
+                </div>
+              )}
+
               {extError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700">
-                  {extError}
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700 flex items-center justify-between gap-2">
+                  <span>{extError}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExtError(null);
+                      setExtCatalogAttempt((n) => n + 1);
+                    }}
+                    className="font-bold underline whitespace-nowrap"
+                  >
+                    Réessayer
+                  </button>
                 </div>
               )}
 
               {extLoadingCatalog ? (
                 <div className="py-6 flex items-center justify-center gap-2 text-xs text-slate-500">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Connexion à kids-flashcards.com...</span>
+                  <span>Chargement des packs françaises-anglais...</span>
                 </div>
               ) : (
-                <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg">
                   {externalPacks
                     .filter(
                       (p) =>
@@ -880,26 +1081,44 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                         p.titleEn.toLowerCase().includes(extSearch.toLowerCase())
                     )
                     .map((pack) => (
-                      <div key={pack.path} className="p-2.5 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 truncate">
-                            {pack.titleEn}
-                          </div>
-                          <div className="text-[11px] text-slate-500 truncate">
-                            {pack.titleFr} · {pack.count} cartes
+                      <div key={pack.path} className="p-2 flex items-center justify-between gap-2 hover:bg-slate-50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {pack.thumbUrl && (
+                            <img
+                              src={pack.thumbUrl}
+                              alt={pack.titleEn}
+                              className="w-10 h-8 object-cover rounded border border-slate-200 shrink-0 bg-slate-100"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 truncate">
+                              {pack.titleEn}
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate">
+                              {pack.titleFr} · {pack.count} cartes
+                            </div>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleImportExternalPack(pack.path)}
-                          disabled={extImportingPath !== null}
-                          className="h-8 px-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-md whitespace-nowrap shrink-0 flex items-center gap-1"
-                        >
-                          {extImportingPath === pack.path ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : null}
-                          <span>Importer</span>
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPackPicker(pack.path, pack.titleFr || pack.titleEn)}
+                            className="h-7 px-2 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold rounded-md whitespace-nowrap"
+                          >
+                            Choisir
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleImportExternalPack(pack.path)}
+                            disabled={extImportingPath !== null}
+                            className="h-7 px-2 disabled:opacity-60 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold rounded-md whitespace-nowrap flex items-center gap-1"
+                          >
+                            {extImportingPath === pack.path && (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            )}
+                            <span>Importer</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                 </div>
@@ -1051,8 +1270,307 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
           </div>
         </aside>
 
-        {/* Right A4 Print Sheet Preview */}
+        {/* Right Workspace: Télécharger cartes françaises anglais (Admin only) / Teacher Request / A4 Print Sheet */}
         <section className="lg:col-span-8 space-y-4">
+          {inputMode === 'external' && (
+            <div className="no-print print:hidden bg-white border border-slate-200 rounded-xl p-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExtWorkspaceMode('site')}
+                  className={`h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                    extWorkspaceMode === 'site'
+                      ? 'bg-emerald-700 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>kids-flashcards.com Direct (Sans pub)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExtWorkspaceMode('picker')}
+                  className={`h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                    extWorkspaceMode === 'picker'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Grid2x2 className="w-3.5 h-3.5" />
+                  <span>Choisir par thème</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExtWorkspaceMode('sheet')}
+                  className={`h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                    extWorkspaceMode === 'sheet'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Planche A4 ({cards.length} cartes)</span>
+                </button>
+              </div>
+              <span className="text-[11px] font-semibold text-emerald-700 px-2 inline-flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Accès Ouvert Sans Pub</span>
+              </span>
+            </div>
+          )}
+
+          {inputMode === 'external' && extWorkspaceMode === 'site' && (
+            <div className="no-print print:hidden bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-200 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-950">
+                <span>
+                  Naviguez librement sur <strong>kids-flashcards.com</strong> (publicités &amp; Hercule IA bloqués). Cliquez sur <strong>Téléchargez le PDF</strong> ou sur une image pour votre planche A4.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExtWorkspaceMode('sheet')}
+                  className="px-2.5 py-1 rounded-md bg-emerald-700 hover:bg-emerald-800 text-white font-semibold whitespace-nowrap"
+                >
+                  Voir ma planche A4 ({cards.length})
+                </button>
+              </div>
+              <iframe
+                key={extSitePath}
+                title="kids-flashcards.com sans publicités"
+                src={`${getApiBase()}/api/flashcards/site-proxy?path=${encodeURIComponent(extSitePath)}`}
+                className="w-full h-[760px] bg-white border-0"
+              />
+            </div>
+          )}
+
+          {inputMode === 'external' && extWorkspaceMode === 'picker' && (
+            <div className="no-print print:hidden bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+              {pickerLoading ? (
+                <div className="py-16 flex items-center justify-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Chargement des flashcards du thème...</span>
+                </div>
+              ) : pickerPack ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">{pickerPack.title}</h2>
+                      <p className="text-xs text-slate-500">
+                        Cliquez sur les cartes à inclure ({pickerSelected.length}/{pickerPack.cards.length} sélectionnées)
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPickerPack(null)}
+                        className="h-8 px-3 border border-slate-200 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+                      >
+                        ← Catégories
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExtSitePath(pickerPack.path);
+                          setExtWorkspaceMode('site');
+                        }}
+                        className="h-8 px-3 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg inline-flex items-center gap-1"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>Ouvrir page directe</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickerSelected(
+                            pickerSelected.length === pickerPack.cards.length
+                              ? []
+                              : pickerPack.cards.map((c) => c.english)
+                          )
+                        }
+                        className="h-8 px-3 border border-slate-200 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+                      >
+                        {pickerSelected.length === pickerPack.cards.length ? 'Tout décocher' : 'Tout cocher'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pickerSelected.length === 0 || extImportingPath !== null}
+                        onClick={() => handleImportExternalPack(pickerPack.path, pickerSelected)}
+                        className="h-8 px-3.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                      >
+                        {extImportingPath === pickerPack.path && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        <span>Ajouter {pickerSelected.length} carte(s) à A4</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {pickerPack.pdfDownloads && pickerPack.pdfDownloads.length > 0 && (
+                    <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-emerald-950">
+                        Téléchargement PDF original instantané :
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {pickerPack.pdfDownloads.slice(0, 4).map((dl, idx) => {
+                          const apiBase = getApiBase();
+                          const storedPin =
+                            typeof window !== 'undefined'
+                              ? window.localStorage.getItem(ADMIN_PIN_STORAGE_KEY) || ''
+                              : '';
+                          const authQuery = adminToken
+                            ? `&adminToken=${encodeURIComponent(adminToken)}`
+                            : storedPin
+                              ? `&pin=${encodeURIComponent(storedPin)}`
+                              : '';
+                          return (
+                            <a
+                              key={`${dl.url}-${idx}`}
+                              href={`${apiBase}${dl.url}${authQuery}`}
+                              download
+                              className="h-8 px-3 bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold rounded-lg inline-flex items-center gap-1.5"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>{dl.format || dl.label}</span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[680px] overflow-y-auto pr-1">
+                    {pickerPack.cards.map((card) => {
+                      const isChecked = pickerSelected.includes(card.english);
+                      return (
+                        <button
+                          key={card.english}
+                          type="button"
+                          onClick={() =>
+                            setPickerSelected((prev) =>
+                              prev.includes(card.english)
+                                ? prev.filter((w) => w !== card.english)
+                                : [...prev, card.english]
+                            )
+                          }
+                          className={`relative p-2.5 rounded-xl border text-center transition-all flex flex-col items-center gap-2 ${
+                            isChecked
+                              ? 'border-emerald-600 bg-emerald-50/70 ring-1 ring-emerald-600'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center border ${
+                              isChecked
+                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                : 'bg-white border-slate-300 text-transparent'
+                            }`}
+                          >
+                            <Check className="w-3 h-3" />
+                          </span>
+                          <img
+                            src={card.imageUrl}
+                            alt={card.english}
+                            className="h-24 w-full object-contain rounded"
+                          />
+                          <span className="text-xs font-bold text-slate-900">{card.english}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                    <div>
+                      <h2 className="text-sm font-bold text-slate-900">
+                        Télécharger cartes françaises anglais · Catégories ({externalPacks.length})
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        Choisissez une catégorie pour voir et sélectionner ses images, ou importez le pack complet.
+                      </p>
+                    </div>
+                  </div>
+                  {extLoadingCatalog && externalPacks.length === 0 ? (
+                    <div className="py-16 flex items-center justify-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Chargement des cartes françaises-anglais...</span>
+                    </div>
+                  ) : extError && externalPacks.length === 0 ? (
+                    <div className="p-6 rounded-xl bg-rose-50 border border-rose-200 text-center space-y-3">
+                      <p className="text-xs text-rose-700 font-medium">{extError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExtError(null);
+                          setExtCatalogAttempt((n) => n + 1);
+                        }}
+                        className="h-9 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg"
+                      >
+                        Réessayer le chargement
+                      </button>
+                    </div>
+                  ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[680px] overflow-y-auto pr-1">
+                    {externalPacks
+                      .filter(
+                        (p) =>
+                          !extSearch.trim() ||
+                          p.titleFr.toLowerCase().includes(extSearch.toLowerCase()) ||
+                          p.titleEn.toLowerCase().includes(extSearch.toLowerCase())
+                      )
+                      .map((pack) => (
+                        <div
+                          key={pack.path}
+                          className="border border-slate-200 rounded-xl overflow-hidden bg-white flex flex-col justify-between"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPackPicker(pack.path, pack.titleFr || pack.titleEn)}
+                            className="text-left group"
+                          >
+                            {pack.thumbUrl && (
+                              <img
+                                src={pack.thumbUrl}
+                                alt={pack.titleEn}
+                                className="w-full h-32 object-cover bg-slate-100 group-hover:opacity-95"
+                              />
+                            )}
+                            <div className="p-2.5">
+                              <div className="text-xs font-bold text-slate-900 truncate">{pack.titleEn}</div>
+                              <div className="text-[11px] text-slate-500 truncate">
+                                {pack.titleFr} · {pack.count} cartes
+                              </div>
+                            </div>
+                          </button>
+                          <div className="px-2.5 pb-2.5 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPackPicker(pack.path, pack.titleFr || pack.titleEn)}
+                              className="flex-1 h-8 border border-slate-200 hover:bg-slate-50 text-slate-800 text-[11px] font-semibold rounded-lg"
+                            >
+                              Choisir cartes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleImportExternalPack(pack.path)}
+                              disabled={extImportingPath !== null}
+                              className="flex-1 h-8 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-[11px] font-semibold rounded-lg"
+                            >
+                              Tout importer
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          <div
+            className={
+              inputMode === 'external' && extWorkspaceMode !== 'sheet'
+                ? 'hidden print:block space-y-4'
+                : 'space-y-4'
+            }
+          >
           <div className="no-print print:hidden bg-white border border-slate-200 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 text-xs text-slate-600">
               <span className="font-semibold text-slate-900">Format A4 (210 × 297 mm)</span>
@@ -1078,11 +1596,25 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
 
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() => {
+                if (!hasProOrAdmin) {
+                  onOpenActivationModal();
+                  return;
+                }
+                window.print();
+              }}
               className="h-9 px-4 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 whitespace-nowrap"
             >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Imprimer / Exporter PDF A4</span>
+              {!hasProOrAdmin ? (
+                <Lock className="w-3.5 h-3.5" />
+              ) : (
+                <Printer className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {hasProOrAdmin
+                  ? 'Imprimer / Exporter PDF A4'
+                  : 'Débloquer PDF A4 (CCP)'}
+              </span>
             </button>
           </div>
 
@@ -1146,6 +1678,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({
                 </React.Fragment>
               );
             })}
+          </div>
           </div>
         </section>
       </div>

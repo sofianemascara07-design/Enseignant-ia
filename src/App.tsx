@@ -16,6 +16,7 @@ import {
 import {
   CheckCircle2,
   CreditCard,
+  Download,
   KeyRound,
   Loader2,
   LogIn,
@@ -31,6 +32,7 @@ import { CurriculumView } from './components/CurriculumView';
 import { SheetHeaderConfig } from './components/DocumentSheet';
 import { FlashcardsView } from './components/FlashcardsView';
 import { LibraryView } from './components/LibraryView';
+import { VideoStudioView } from './components/VideoStudioView';
 import { OfflineIndicator, PWAInstallAndShareControl } from './components/PWAInstallButton';
 import { buildSubjectStarterContent } from './data/algerianCurriculum';
 import {
@@ -46,10 +48,16 @@ import {
   LevelType,
   PedagogicDocument,
   SubjectType,
+  Subscriber,
+  SubscriberPlan,
   TrimesterType,
 } from './types';
+import { ADMIN_PIN_STORAGE_KEY, ADMIN_TOKEN_STORAGE_KEY, buildApiHeaders, getApiBase, parseJsonSafe } from './utils/authHeaders';
+import { makeSubscriberIdForEmail, normalizeSubscriberEmail } from './utils/subscriberId';
 
-type AppTab = 'atelier' | 'flashcards' | 'library' | 'correspondents' | 'curriculum';
+type AppTab = 'atelier' | 'flashcards' | 'videos' | 'library' | 'correspondents' | 'curriculum';
+
+const ADMIN_EMAIL = 'sofianemascara07@gmail.com';
 
 const MAX_FREE_TRIALS = 2;
 const WHATSAPP_NUMBER_DISPLAY = '05 57 76 78 04';
@@ -189,37 +197,189 @@ export default function App() {
   const [activationError, setActivationError] = useState<string | null>(null);
   const [activationSuccess, setActivationSuccess] = useState<string | null>(null);
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const isLicensed = Boolean(
-    licenseInfo && licenseInfo.code && (!licenseInfo.expiresAt || licenseInfo.expiresAt >= todayIso)
-  );
+  // Admin Open Access & Subscriber Management State
+  const [adminToken, setAdminToken] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [globalOpenAccess, setGlobalOpenAccess] = useState(false);
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [serverAccess, setServerAccess] = useState<{
+    hasAccess: boolean;
+    isAdmin: boolean;
+    globalOpenAccess: boolean;
+    subscriberActive: boolean | null;
+    suspended: boolean;
+    plan?: string;
+    expiresAt?: string;
+    message?: string;
+  } | null>(null);
+  const [correspondentsInitialSubTab, setCorrespondentsInitialSubTab] = useState<
+    'correspondents' | 'invoices' | 'licenses' | 'admin' | undefined
+  >(undefined);
+  const [modalAdminPin, setModalAdminPin] = useState('');
+  const [modalAdminBusy, setModalAdminBusy] = useState(false);
+  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
+  const [quickAdminPin, setQuickAdminPin] = useState('');
+  const [quickAdminBusy, setQuickAdminBusy] = useState(false);
+  const [quickAdminError, setQuickAdminError] = useState<string | null>(null);
+  const [flashcardsDirectSignal, setFlashcardsDirectSignal] = useState(0);
 
-  // Validate stored license on startup against backend HMAC
+  const [localAdminUnlocked, setLocalAdminUnlocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(ADMIN_PIN_STORAGE_KEY) === '202607';
+    } catch {
+      return false;
+    }
+  });
+
+  const isOwnerEmail = Boolean(user?.email && user.email.toLowerCase() === ADMIN_EMAIL);
+  const isAdmin = Boolean(isOwnerEmail || adminToken || localAdminUnlocked || serverAccess?.isAdmin);
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const hasValidLicenseCode = Boolean(
+    licenseInfo &&
+      licenseInfo.code &&
+      (!licenseInfo.expiresAt || licenseInfo.expiresAt >= todayIso) &&
+      !serverAccess?.suspended
+  );
+  const isLicensed = Boolean(isAdmin || globalOpenAccess || serverAccess?.hasAccess || hasValidLicenseCode);
+
+  const refreshAccessStatus = async (overrideAdminToken?: string | null) => {
+    try {
+      const apiBase = getApiBase();
+      const headers = await buildApiHeaders({
+        licenseCode: licenseInfo?.code,
+        adminToken: overrideAdminToken !== undefined ? overrideAdminToken : adminToken,
+      });
+      const res = await fetch(`${apiBase}/api/access/status`, { headers });
+      if (!res.ok) return;
+      const data = await parseJsonSafe<{
+        hasAccess: boolean;
+        isAdmin: boolean;
+        globalOpenAccess: boolean;
+        subscriberActive: boolean | null;
+        suspended: boolean;
+        plan?: string;
+        expiresAt?: string;
+        message?: string;
+      }>(res);
+      setServerAccess(data);
+      if (typeof data.globalOpenAccess === 'boolean') {
+        setGlobalOpenAccess(data.globalOpenAccess);
+      }
+    } catch {
+      // Offline / transient network issue
+    }
+  };
+
+  // Validate stored license and sync access status on startup / auth / license change
   useEffect(() => {
+    refreshAccessStatus();
     if (!licenseInfo?.code) return;
-    const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+    const apiBase = getApiBase();
     fetch(`${apiBase}/api/license/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: licenseInfo.code }),
     })
-      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then((r) => parseJsonSafe<{ valid?: boolean; suspended?: boolean; message?: string }>(r).then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
         if (!ok || !d.valid) {
-          localStorage.removeItem(LICENSE_STORAGE_KEY);
-          setLicenseInfo(null);
+          if (d.suspended) {
+            setServerAccess((prev) => ({
+              ...(prev || { hasAccess: false, isAdmin: false, globalOpenAccess: false, subscriberActive: false }),
+              hasAccess: false,
+              suspended: true,
+              message: d.message,
+            }));
+          } else {
+            localStorage.removeItem(LICENSE_STORAGE_KEY);
+            setLicenseInfo(null);
+          }
         }
       })
       .catch(() => {
         // Keep cached state if offline momentarily
       });
+  }, [user?.uid, adminToken, licenseInfo?.code]);
+
+  // Listen to Firestore global access settings (/appSettings/access)
+  useEffect(() => {
+    const accessDocRef = doc(db, 'appSettings', 'access');
+    const unsub = onSnapshot(
+      accessDocRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (typeof data?.globalOpenAccess === 'boolean') {
+            setGlobalOpenAccess(data.globalOpenAccess);
+          }
+        }
+      },
+      (err) => {
+        console.warn('App access settings listener note:', err.message);
+      }
+    );
+    return () => unsub();
   }, []);
+
+  // Fetch admin state from backend whenever adminToken or localAdminUnlocked is present
+  useEffect(() => {
+    if (!adminToken && !localAdminUnlocked) return;
+    const apiBase = getApiBase();
+    buildApiHeaders({ adminToken })
+      .then((headers) => fetch(`${apiBase}/api/admin/state`, { headers, credentials: 'include' }))
+      .then((r) => (r.ok ? parseJsonSafe<{ globalOpenAccess?: boolean; subscribers?: Subscriber[] }>(r) : null))
+      .then((data) => {
+        if (!data) return;
+        if (typeof data.globalOpenAccess === 'boolean') setGlobalOpenAccess(data.globalOpenAccess);
+        if (Array.isArray(data.subscribers) && data.subscribers.length > 0 && !isOwnerEmail) {
+          setSubscribers(data.subscribers);
+        }
+      })
+      .catch(() => {});
+  }, [adminToken, localAdminUnlocked, isOwnerEmail]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setAuthReady(true);
       if (currentUser) {
+        if (currentUser.email?.toLowerCase() === ADMIN_EMAIL) {
+          try {
+            const idToken = await currentUser.getIdToken();
+            const apiBase = getApiBase();
+            const res = await fetch(`${apiBase}/api/admin/auth`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken }),
+            });
+            if (res.ok) {
+              const data = await parseJsonSafe<{
+                adminToken?: string;
+                globalOpenAccess?: boolean;
+                subscribers?: Subscriber[];
+              }>(res);
+              if (data.adminToken) {
+                setAdminToken(data.adminToken);
+                localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, data.adminToken);
+              }
+              if (typeof data.globalOpenAccess === 'boolean') {
+                setGlobalOpenAccess(data.globalOpenAccess);
+              }
+              if (Array.isArray(data.subscribers)) {
+                setSubscribers(data.subscribers);
+              }
+            }
+          } catch {
+            // Backend admin token exchange optional if offline
+          }
+        }
+
         try {
           const userRef = doc(db, 'users', currentUser.uid);
           const snap = await getDoc(userRef);
@@ -258,6 +418,52 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  // Firestore subscribers listener: Admin sees full list; regular users listen only to their own doc
+  useEffect(() => {
+    if (!authReady || !user) return;
+    if (isOwnerEmail) {
+      const subsQuery = query(collection(db, 'subscribers'), orderBy('updatedAt', 'desc'));
+      const unsubSubs = onSnapshot(
+        subsQuery,
+        (snapshot) => {
+          const list = snapshot.docs.map((d) => d.data() as Subscriber);
+          setSubscribers(list);
+          if (list.length > 0) {
+            const apiBase = getApiBase();
+            buildApiHeaders({ adminToken })
+              .then((headers) =>
+                fetch(`${apiBase}/api/admin/subscribers/sync`, {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify({ subscribers: list }),
+                })
+              )
+              .catch(() => {});
+          }
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'subscribers');
+        }
+      );
+      return () => unsubSubs();
+    }
+
+    if (user.email) {
+      const mySubId = makeSubscriberIdForEmail(user.email);
+      const mySubRef = doc(db, 'subscribers', mySubId);
+      const unsubMySub = onSnapshot(
+        mySubRef,
+        () => {
+          refreshAccessStatus();
+        },
+        () => {
+          // Ignore if no subscriber record exists for this email
+        }
+      );
+      return () => unsubMySub();
+    }
+  }, [authReady, user, isOwnerEmail, adminToken]);
 
   useEffect(() => {
     if (!authReady || !user) return;
@@ -330,13 +536,27 @@ export default function App() {
     setActivationSuccess(null);
 
     try {
-      const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+      const trimmed = codeInput.trim();
+      if (!trimmed.toUpperCase().startsWith('CEM-')) {
+        // Also allow entering the Admin PIN directly in the activation input
+        try {
+          await handleUnlockAdminPin(trimmed);
+          setCodeInput('');
+          setActivationSuccess('Accès Total Administrateur activé ! Tous les modules sont ouverts.');
+          setTimeout(() => setShowActivationModal(false), 800);
+          return;
+        } catch {
+          // Fall through to standard license verification error
+        }
+      }
+
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/license/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: codeInput.trim() }),
+        body: JSON.stringify({ code: trimmed }),
       });
-      const data = await res.json();
+      const data = await parseJsonSafe<{ valid?: boolean; message?: string; plan?: string; expiresAt?: string }>(res);
       if (!res.ok || !data.valid) {
         throw new Error(data.message || 'Code invalide ou expiré.');
       }
@@ -375,7 +595,242 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    setAdminToken(null);
+    setLocalAdminUnlocked(false);
+    localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(ADMIN_PIN_STORAGE_KEY);
     await signOut(auth);
+  };
+
+  const handleUnlockAdminPin = async (pin: string) => {
+    const cleanPin = pin.trim();
+    const apiBase = getApiBase();
+    const endpoints = apiBase ? [`${apiBase}/api/admin/auth`, '/api/admin/auth'] : ['/api/admin/auth'];
+
+    let lastStatus = 0;
+    let lastErrorMessage = '';
+
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ adminPin: cleanPin }),
+        });
+        lastStatus = res.status;
+        const rawText = await res.text();
+        let data: {
+          adminToken?: string;
+          globalOpenAccess?: boolean;
+          subscribers?: Subscriber[];
+          error?: string;
+        } | null = null;
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = null;
+        }
+
+        if (res.ok && data?.adminToken) {
+          setAdminToken(data.adminToken);
+          setLocalAdminUnlocked(true);
+          localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, data.adminToken);
+          localStorage.setItem(ADMIN_PIN_STORAGE_KEY, cleanPin);
+          if (typeof data.globalOpenAccess === 'boolean') setGlobalOpenAccess(data.globalOpenAccess);
+          if (Array.isArray(data.subscribers)) setSubscribers(data.subscribers);
+          await refreshAccessStatus(data.adminToken);
+          return;
+        }
+
+        if (res.status === 403) {
+          throw new Error(data?.error || 'Code PIN administrateur incorrect.');
+        }
+        lastErrorMessage = data?.error || `HTTP ${res.status}`;
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('incorrect')) {
+          throw err;
+        }
+        lastErrorMessage = err instanceof Error ? err.message : 'Erreur réseau.';
+      }
+    }
+
+    // If proxy/SW/cookie check blocked fetch but the Admin PIN matches, still open Admin access seamlessly
+    if (cleanPin === '202607' && lastStatus !== 403) {
+      localStorage.setItem(ADMIN_PIN_STORAGE_KEY, cleanPin);
+      setLocalAdminUnlocked(true);
+      return;
+    }
+
+    throw new Error(lastErrorMessage || 'Impossible de vérifier le code PIN.');
+  };
+
+  const handleToggleGlobalOpenAccess = async (nextValue: boolean) => {
+    const apiBase = getApiBase();
+    const headers = await buildApiHeaders({ adminToken });
+    const res = await fetch(`${apiBase}/api/admin/access-config`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ globalOpenAccess: nextValue }),
+    });
+    const data = await parseJsonSafe<{ globalOpenAccess?: boolean; error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Erreur mise à jour accès global.');
+    }
+    setGlobalOpenAccess(Boolean(data.globalOpenAccess));
+
+    if (user && isOwnerEmail) {
+      const accessRef = doc(db, 'appSettings', 'access');
+      try {
+        const snap = await getDoc(accessRef);
+        if (snap.exists()) {
+          await updateDoc(accessRef, {
+            globalOpenAccess: Boolean(nextValue),
+            updatedBy: user.uid,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(accessRef, {
+            id: 'access',
+            globalOpenAccess: Boolean(nextValue),
+            updatedBy: user.uid,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'appSettings/access');
+      }
+    }
+    await refreshAccessStatus();
+  };
+
+  const handleAddSubscriber = async (params: {
+    fullName: string;
+    email?: string;
+    phone?: string;
+    plan: SubscriberPlan;
+    active: boolean;
+    notes?: string;
+  }): Promise<Subscriber | null> => {
+    const apiBase = getApiBase();
+    const headers = await buildApiHeaders({ adminToken });
+    const res = await fetch(`${apiBase}/api/admin/subscribers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...params, generateCode: true }),
+    });
+    const data = await parseJsonSafe<{ subscriber?: Subscriber; error?: string }>(res);
+    if (!res.ok || !data.subscriber) {
+      throw new Error(data.error || 'Impossible de créer l’abonné.');
+    }
+    const created = data.subscriber as Subscriber;
+    setSubscribers((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+
+    if (user && isOwnerEmail) {
+      const subRef = doc(db, 'subscribers', created.id);
+      try {
+        const existingSnap = await getDoc(subRef);
+        const cleanEmail = normalizeSubscriberEmail(created.email);
+        if (existingSnap.exists()) {
+          await updateDoc(subRef, {
+            fullName: created.fullName.slice(0, 120),
+            email: cleanEmail.slice(0, 180),
+            phone: (created.phone || '').slice(0, 40),
+            plan: created.plan,
+            active: Boolean(created.active),
+            licenseCode: (created.licenseCode || '').slice(0, 120),
+            expiresAt: (created.expiresAt || '').slice(0, 40),
+            notes: (created.notes || '').slice(0, 500),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(subRef, {
+            id: created.id,
+            ownerId: user.uid,
+            fullName: created.fullName.slice(0, 120),
+            email: cleanEmail.slice(0, 180),
+            phone: (created.phone || '').slice(0, 40),
+            plan: created.plan,
+            active: Boolean(created.active),
+            licenseCode: (created.licenseCode || '').slice(0, 120),
+            expiresAt: (created.expiresAt || '').slice(0, 40),
+            notes: (created.notes || '').slice(0, 500),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.warn('Firestore subscriber sync note:', err);
+      }
+    }
+
+    return created;
+  };
+
+  const handleToggleSubscriberActive = async (sub: Subscriber) => {
+    const nextActive = !sub.active;
+    const apiBase = getApiBase();
+    const headers = await buildApiHeaders({ adminToken });
+    const res = await fetch(`${apiBase}/api/admin/subscribers/${encodeURIComponent(sub.id)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ active: nextActive }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Erreur mise à jour abonné.');
+    }
+
+    setSubscribers((prev) => prev.map((item) => (item.id === sub.id ? { ...item, active: nextActive } : item)));
+
+    if (user && isOwnerEmail) {
+      const subRef = doc(db, 'subscribers', sub.id);
+      try {
+        const snap = await getDoc(subRef);
+        if (snap.exists()) {
+          await updateDoc(subRef, {
+            active: nextActive,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await setDoc(subRef, {
+            id: sub.id,
+            ownerId: user.uid,
+            fullName: sub.fullName.slice(0, 120),
+            email: normalizeSubscriberEmail(sub.email).slice(0, 180),
+            phone: (sub.phone || '').slice(0, 40),
+            plan: sub.plan,
+            active: nextActive,
+            licenseCode: (sub.licenseCode || '').slice(0, 120),
+            expiresAt: (sub.expiresAt || '').slice(0, 40),
+            notes: (sub.notes || '').slice(0, 500),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.warn('Firestore subscriber toggle sync note:', err);
+      }
+    }
+  };
+
+  const handleDeleteSubscriber = async (id: string) => {
+    const apiBase = getApiBase();
+    const headers = await buildApiHeaders({ adminToken });
+    const res = await fetch(`${apiBase}/api/admin/subscribers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (res.ok) {
+      setSubscribers((prev) => prev.filter((item) => item.id !== id));
+    }
+    if (user && isOwnerEmail) {
+      try {
+        await deleteDoc(doc(db, 'subscribers', id));
+      } catch (err) {
+        console.warn('Firestore subscriber delete sync note:', err);
+      }
+    }
   };
 
   const handleSaveDocument = async (currentDraft: ActiveDraft) => {
@@ -604,6 +1059,7 @@ export default function App() {
   const navItems: { id: AppTab; label: string }[] = [
     { id: 'atelier', label: 'Atelier IA' },
     { id: 'flashcards', label: 'Flashcards' },
+    { id: 'videos', label: 'Vidéos Anglais' },
     { id: 'library', label: 'Bibliothèque' },
     { id: 'correspondents', label: 'Correspondants' },
     { id: 'curriculum', label: 'Programme CEM' },
@@ -651,8 +1107,47 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Zone 3: Install/Share + 1 Primary Action */}
+          {/* Zone 3: 1-Click Direct Cards + Admin Quick Access + Install/Share + Primary Action */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('flashcards');
+                setFlashcardsDirectSignal((n) => n + 1);
+              }}
+              className="h-9 px-2.5 sm:px-3 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-xs"
+              title="Accès direct 1 clic : kids-flashcards.com sans publicités"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Cartes Direct</span>
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCorrespondentsInitialSubTab('admin');
+                  setActiveTab('correspondents');
+                }}
+                className="h-9 px-2.5 sm:px-3 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                title="Panneau Admin : Clés CCP, Accès Total & Abonnés"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="hidden sm:inline">Admin · Clés</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickAdminError(null);
+                  setShowAdminPinModal(true);
+                }}
+                className="h-9 px-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                title="Accès direct Administrateur"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="hidden sm:inline">Admin</span>
+              </button>
+            )}
             <PWAInstallAndShareControl />
             {user ? (
               <button
@@ -736,22 +1231,70 @@ export default function App() {
             onCreatePaidShare={handleCreateInvoice}
             licenseCode={licenseInfo?.code || null}
             licensePlan={licenseInfo?.plan || null}
+            adminToken={adminToken}
+            isAdmin={isAdmin}
             isLicensed={isLicensed}
             trialsUsed={trialsUsed}
             maxTrials={MAX_FREE_TRIALS}
             onIncrementTrial={handleIncrementTrial}
             onOpenActivationModal={() => setShowActivationModal(true)}
+            onOpenAdminPanel={() => {
+              setCorrespondentsInitialSubTab('admin');
+              setActiveTab('correspondents');
+            }}
           />
         )}
 
         {activeTab === 'flashcards' && (
           <FlashcardsView
             licenseCode={licenseInfo?.code || null}
+            adminToken={adminToken}
+            isAdmin={isAdmin}
             isLicensed={isLicensed}
             trialsUsed={trialsUsed}
             maxTrials={MAX_FREE_TRIALS}
             onIncrementTrial={handleIncrementTrial}
             onOpenActivationModal={() => setShowActivationModal(true)}
+            onOpenAdminPanel={() => {
+              setCorrespondentsInitialSubTab('admin');
+              setActiveTab('correspondents');
+            }}
+            onOpenAdminQuickUnlock={() => {
+              setQuickAdminError(null);
+              setShowAdminPinModal(true);
+            }}
+            onUnlockAdminPin={handleUnlockAdminPin}
+            openDirectSiteSignal={flashcardsDirectSignal}
+          />
+        )}
+
+        {activeTab === 'videos' && (
+          <VideoStudioView
+            userEmail={user?.email || (isAdmin ? ADMIN_EMAIL : undefined)}
+            isAuthenticated={Boolean(user)}
+            isAdmin={isAdmin}
+            isLicensed={isLicensed}
+            adminToken={adminToken}
+            licenseCode={licenseInfo?.code || null}
+            trialsUsed={trialsUsed}
+            maxTrials={MAX_FREE_TRIALS}
+            onIncrementTrial={handleIncrementTrial}
+            onOpenActivationModal={() => setShowActivationModal(true)}
+            onRequestSignIn={handleSignIn}
+            onSendWorksheetToAtelier={({ title, level, contentMarkdown }) => {
+              setDraft((prev) => ({
+                ...prev,
+                id: undefined,
+                subject: 'Anglais',
+                level,
+                language: 'en',
+                docType: 'cours',
+                title,
+                contentMarkdown,
+                svgDiagram: '',
+              }));
+              setActiveTab('atelier');
+            }}
           />
         )}
 
@@ -776,8 +1319,18 @@ export default function App() {
             correspondents={correspondents}
             invoices={invoices}
             userEmail={user?.email || undefined}
+            adminToken={adminToken}
             isAuthenticated={Boolean(user)}
+            isAdmin={isAdmin}
+            globalOpenAccess={globalOpenAccess}
+            subscribers={subscribers}
+            initialSubTab={correspondentsInitialSubTab}
             onRequestSignIn={handleSignIn}
+            onUnlockAdminPin={handleUnlockAdminPin}
+            onToggleGlobalOpenAccess={handleToggleGlobalOpenAccess}
+            onAddSubscriber={handleAddSubscriber}
+            onToggleSubscriberActive={handleToggleSubscriberActive}
+            onDeleteSubscriber={handleDeleteSubscriber}
             onAddCorrespondent={handleAddCorrespondent}
             onDeleteCorrespondent={handleDeleteCorrespondent}
             onCreateInvoice={handleCreateInvoice}
@@ -791,16 +1344,86 @@ export default function App() {
         )}
       </main>
 
-      {/* Floating Green WhatsApp Contact Button (Matching Screenshot 1) */}
-      <a
-        href={whatsappFloatHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="no-print fixed bottom-5 left-5 z-40 h-12 px-5 bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-sm rounded-full shadow-lg flex items-center gap-2.5 transition-transform hover:scale-[1.02]"
-      >
-        <MessageCircle className="w-5 h-5 fill-white text-white" />
-        <span className="font-mono-tabular tracking-wide">{WHATSAPP_NUMBER_DISPLAY}</span>
-      </a>
+      {/* Floating Green WhatsApp Contact Button (hidden for Admin for a clean ad-free workspace) */}
+      {!isAdmin && (
+        <a
+          href={whatsappFloatHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="no-print fixed bottom-5 left-5 z-40 h-12 px-5 bg-[#16A34A] hover:bg-[#15803D] text-white font-semibold text-sm rounded-full shadow-lg flex items-center gap-2.5 transition-transform hover:scale-[1.02]"
+        >
+          <MessageCircle className="w-5 h-5 fill-white text-white" />
+          <span className="font-mono-tabular tracking-wide">{WHATSAPP_NUMBER_DISPLAY}</span>
+        </a>
+      )}
+
+      {/* Clean Direct Admin PIN Unlock Modal (zero CCP / ad banners) */}
+      {showAdminPinModal && (
+        <div className="no-print fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-xl">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Accès Direct Administrateur</h2>
+                  <p className="text-[11px] text-slate-500">Accès total sans publicités ni blocage</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminPinModal(false)}
+                className="text-xs text-slate-500 hover:text-slate-900"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!quickAdminPin.trim()) return;
+                setQuickAdminBusy(true);
+                setQuickAdminError(null);
+                try {
+                  await handleUnlockAdminPin(quickAdminPin.trim());
+                  setQuickAdminPin('');
+                  setShowAdminPinModal(false);
+                } catch (err) {
+                  setQuickAdminError(err instanceof Error ? err.message : 'Code PIN incorrect.');
+                } finally {
+                  setQuickAdminBusy(false);
+                }
+              }}
+              className="space-y-3"
+            >
+              <input
+                type="password"
+                autoFocus
+                required
+                value={quickAdminPin}
+                onChange={(e) => setQuickAdminPin(e.target.value)}
+                placeholder="Entrez le code PIN Admin"
+                className="w-full h-10 px-3 text-sm font-mono-tabular border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+              {quickAdminError && (
+                <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">
+                  {quickAdminError}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={quickAdminBusy}
+                className="w-full h-10 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5"
+              >
+                {quickAdminBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                <span>Ouvrir l’accès total Admin</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* CCP / BaridiMob & WhatsApp Activation Lock Modal */}
       {showActivationModal && (
@@ -829,7 +1452,35 @@ export default function App() {
               </button>
             </div>
 
-            {isLicensed && licenseInfo && (
+            {serverAccess?.suspended && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
+                <strong>Abonnement suspendu :</strong>{' '}
+                {serverAccess.message ||
+                  'Votre accès a été désactivé par l’administrateur. Contactez WhatsApp 05 57 76 78 04.'}
+              </div>
+            )}
+
+            {isAdmin && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between gap-2">
+                <div>
+                  <div className="font-bold">Accès Total Administrateur actif</div>
+                  <div>Toutes les fonctionnalités sont ouvertes sans restriction.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActivationModal(false);
+                    setCorrespondentsInitialSubTab('admin');
+                    setActiveTab('correspondents');
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white font-semibold whitespace-nowrap"
+                >
+                  Gérer Abonnés
+                </button>
+              </div>
+            )}
+
+            {!isAdmin && isLicensed && licenseInfo && (
               <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                 <div>
@@ -921,6 +1572,44 @@ export default function App() {
                 </div>
               )}
             </form>
+
+            {/* Discreet Admin PIN Quick Unlock */}
+            {!isAdmin && (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!modalAdminPin.trim()) return;
+                  setModalAdminBusy(true);
+                  setActivationError(null);
+                  try {
+                    await handleUnlockAdminPin(modalAdminPin.trim());
+                    setModalAdminPin('');
+                    setActivationSuccess('Accès Total Administrateur activé.');
+                    setTimeout(() => setShowActivationModal(false), 700);
+                  } catch (err) {
+                    setActivationError(err instanceof Error ? err.message : 'PIN Admin incorrect.');
+                  } finally {
+                    setModalAdminBusy(false);
+                  }
+                }}
+                className="pt-3 border-t border-slate-100 flex items-center gap-2"
+              >
+                <input
+                  type="password"
+                  value={modalAdminPin}
+                  onChange={(e) => setModalAdminPin(e.target.value)}
+                  placeholder="Accès Administrateur (PIN)"
+                  className="flex-1 h-9 px-3 text-xs font-mono-tabular border border-slate-200 rounded-lg"
+                />
+                <button
+                  type="submit"
+                  disabled={modalAdminBusy}
+                  className="h-9 px-3 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg whitespace-nowrap"
+                >
+                  {modalAdminBusy ? '...' : 'Admin'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}

@@ -31,6 +31,12 @@ service cloud.firestore {
       return isVerifiedUser() && request.auth.uid == uid;
     }
 
+    function isAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() == 'sofianemascara07@gmail.com';
+    }
+
     // Validation Blueprint: UserProfile
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
@@ -137,6 +143,37 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    // Validation Blueprint: AppAccessConfig
+    function isValidAppAccessConfig(data, settingId) {
+      return data.keys().hasAll(['id', 'globalOpenAccess', 'updatedBy', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'globalOpenAccess', 'updatedBy', 'updatedAt'])
+        && data.id is string && data.id == settingId && isValidId(data.id)
+        && data.globalOpenAccess is bool
+        && data.updatedBy is string && data.updatedBy == request.auth.uid && isValidId(data.updatedBy)
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Subscriber
+    function isValidSubscriber(data, subscriberId) {
+      return data.keys().hasAll(['id', 'ownerId', 'fullName', 'plan', 'active', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'fullName', 'email', 'phone', 'plan',
+          'active', 'licenseCode', 'expiresAt', 'notes', 'createdAt', 'updatedAt'
+        ])
+        && data.id is string && data.id == subscriberId && isValidId(data.id)
+        && data.ownerId is string && data.ownerId == request.auth.uid && isValidId(data.ownerId)
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 120
+        && (!('email' in data) || (data.email is string && data.email.size() <= 180))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 40))
+        && data.plan in ['MENSUEL', 'TRIMESTRE', 'ANNUEL', 'ACCES_TOTAL']
+        && data.active is bool
+        && (!('licenseCode' in data) || (data.licenseCode is string && data.licenseCode.size() <= 120))
+        && (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 40))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // 1. User Profiles (PII Isolated)
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwnerUid(userId);
@@ -236,6 +273,67 @@ service cloud.firestore {
           || incoming().diff(existing()).affectedKeys().hasOnly(['amountDzd', 'dueDate', 'updatedAt'])
         );
       allow delete: if isValidId(invoiceId) && isVerifiedUser() && existing().ownerId == request.auth.uid;
+    }
+
+    // 5. Global App Access Settings (Public non-PII single doc read, Admin-only write)
+    match /appSettings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'access';
+      allow list: if false;
+      allow create: if isValidId(settingId)
+        && settingId == 'access'
+        && isAdmin()
+        && isValidAppAccessConfig(incoming(), settingId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && settingId == 'access'
+        && isAdmin()
+        && isValidAppAccessConfig(incoming(), settingId)
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['globalOpenAccess', 'updatedBy', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // 6. Subscribers Registry (Admin full CRUD + Subscriber reads own record only)
+    match /subscribers/{subscriberId} {
+      allow get: if isValidId(subscriberId)
+        && (
+          isAdmin()
+          || (
+            isVerifiedUser()
+            && (
+              resource == null
+              || (
+                'email' in existing()
+                && existing().email is string
+                && existing().email.size() > 0
+                && request.auth.token.email is string
+                && existing().email.lower() == request.auth.token.email.lower()
+              )
+            )
+          )
+        );
+      allow list: if isAdmin();
+      allow create: if isValidId(subscriberId)
+        && isAdmin()
+        && isValidSubscriber(incoming(), subscriberId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(subscriberId)
+        && isAdmin()
+        && isValidSubscriber(incoming(), subscriberId)
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['active', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'fullName', 'email', 'phone', 'plan', 'active',
+            'licenseCode', 'expiresAt', 'notes', 'updatedAt'
+          ])
+        );
+      allow delete: if isValidId(subscriberId) && isAdmin();
     }
   }
 }
